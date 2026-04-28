@@ -8,6 +8,7 @@ const cliente = ref({
   documento: '',
   razao_social: '',
   nome_fantasia: '',
+  ie: '',
   email: '',
   telefones: [{ numero: '', tipo: 'WhatsApp' }],
   enderecos: [{ logradouro: '', numero: '', complemento: '', cidade: '', estado: '', tipo: 'Comercial' }]
@@ -21,7 +22,6 @@ const carregarClientes = async () => {
   try {
     const user = JSON.parse(localStorage.getItem('usuarioLogado') || '{}');
     
-    // CORREÇÃO: Usando crases (`) em vez de aspas simples (')
     const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/clientes`, {
       params: {
         usuario_id: user.id,
@@ -59,11 +59,9 @@ const salvarCliente = async () => {
     };
 
     if (cliente.value.id) {
-      // EDITAR - CORREÇÃO: Usando crases (`)
       await axios.put(`${import.meta.env.VITE_API_URL}/api/clientes/${cliente.value.id}`, dadosParaEnviar);
       mensagem.value = { texto: '✅ Cliente atualizado com sucesso!', tipo: 'sucesso' };
     } else {
-      // NOVO - CORREÇÃO: Usando crases (`)
       await axios.post(`${import.meta.env.VITE_API_URL}/api/clientes`, dadosParaEnviar);
       mensagem.value = { texto: '✅ Cliente cadastrado com sucesso!', tipo: 'sucesso' };
     }
@@ -82,8 +80,8 @@ const salvarCliente = async () => {
 const editarCliente = (item) => {
   cliente.value = { 
     ...item,
-    // Mapeamento caso o backend retorne email_principal em vez de email
     email: item.email || item.email_principal, 
+    ie: item.ie || '',
     telefones: item.telefones && item.telefones.length > 0 ? item.telefones : [{ numero: '', tipo: 'WhatsApp' }],
     enderecos: item.enderecos && item.enderecos.length > 0 ? item.enderecos : [{ logradouro: '', numero: '', complemento: '', cidade: '', estado: '', tipo: 'Comercial' }]
   };
@@ -93,7 +91,6 @@ const editarCliente = (item) => {
 const excluirCliente = async (id) => {
   if (confirm("Tem certeza que deseja excluir este cliente?")) {
     try {
-      // CORREÇÃO: Usando crases (`)
       await axios.delete(`${import.meta.env.VITE_API_URL}/api/clientes/${id}`)
       carregarClientes()
     } catch (error) {
@@ -104,7 +101,7 @@ const excluirCliente = async (id) => {
 
 const resetarFormulario = () => {
   cliente.value = {
-    tipo_pessoa: 'PJ', documento: '', razao_social: '', nome_fantasia: '', email: '',
+    tipo_pessoa: 'PJ', documento: '', razao_social: '', nome_fantasia: '', ie: '', email: '',
     telefones: [{ numero: '', tipo: 'WhatsApp' }],
     enderecos: [{ logradouro: '', numero: '', complemento: '', cidade: '', estado: '', tipo: 'Comercial' }]
   }
@@ -153,11 +150,19 @@ const resetarFormulario = () => {
             <label class="block text-sm font-medium text-slate-500">Razão Social / Nome Completo</label>
             <input v-model="cliente.razao_social" type="text" class="w-full border rounded-lg p-2 mt-1 focus:ring-2 focus:ring-blue-500 outline-none">
           </div>
-          <div v-if="cliente.tipo_pessoa === 'PJ'">
-            <label class="block text-sm font-medium text-slate-500">Nome Fantasia</label>
-            <input v-model="cliente.nome_fantasia" type="text" class="w-full border rounded-lg p-2 mt-1 focus:ring-2 focus:ring-blue-500 outline-none">
-          </div>
-          <div>
+          
+          <template v-if="cliente.tipo_pessoa === 'PJ'">
+            <div>
+              <label class="block text-sm font-medium text-slate-500">Nome Fantasia</label>
+              <input v-model="cliente.nome_fantasia" type="text" class="w-full border rounded-lg p-2 mt-1 focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-500">Inscrição Estadual</label>
+              <input v-model="cliente.ie" type="text" class="w-full border rounded-lg p-2 mt-1 focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+          </template>
+
+          <div :class="cliente.tipo_pessoa === 'PJ' ? 'md:col-span-2' : ''">
             <label class="block text-sm font-medium text-slate-500">E-mail Principal</label>
             <input v-model="cliente.email" type="email" class="w-full border rounded-lg p-2 mt-1 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="exemplo@email.com">
           </div>
@@ -171,14 +176,20 @@ const resetarFormulario = () => {
             <thead>
               <tr class="text-slate-400 text-sm">
                 <th class="pb-3 px-4">Razão Social / Nome</th>
-                <th class="pb-3 px-4">Documento</th>
+                <th class="pb-3 px-4">Documento / IE</th>
                 <th class="pb-3 px-4 text-right">Ações</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="item in listaClientes" :key="item.id" class="bg-slate-50 hover:bg-slate-100 transition shadow-sm rounded-lg">
-                <td class="py-4 px-4 font-medium text-slate-700 rounded-l-lg">{{ item.razao_social }}</td>
-                <td class="py-4 px-4 text-slate-500 text-sm">{{ item.documento }}</td>
+                <td class="py-4 px-4 font-medium text-slate-700 rounded-l-lg">
+                    {{ item.razao_social }}
+                    <span v-if="item.nome_fantasia" class="block text-xs text-slate-400 font-normal">{{ item.nome_fantasia }}</span>
+                </td>
+                <td class="py-4 px-4 text-slate-500 text-sm">
+                    {{ item.documento }}
+                    <span v-if="item.ie" class="block text-xs text-slate-400">IE: {{ item.ie }}</span>
+                </td>
                 <td class="py-4 px-4 text-right space-x-4 rounded-r-lg">
                   <button @click="editarCliente(item)" class="text-blue-600 font-bold hover:text-blue-800 transition">Editar</button>
                   <button @click="excluirCliente(item.id)" class="text-red-500 font-bold hover:text-red-700 transition">Excluir</button>

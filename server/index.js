@@ -122,7 +122,7 @@ app.get('/api/clientes', async (req, res) => {
 // ATUALIZAR CLIENTE (PUT) - CORRIGIDO PARA INCLUIR USUARIO_ID
 app.put('/api/clientes/:id', async (req, res) => {
     const { id } = req.params;
-    const { tipo_pessoa, documento, razao_social, nome_fantasia, email, telefones, enderecos, usuario_id } = req.body;
+    const { tipo_pessoa, documento, razao_social, nome_fantasia, ie, email, telefones, enderecos, usuario_id } = req.body;
     const connection = await db.getConnection();
 
     try {
@@ -130,8 +130,8 @@ app.put('/api/clientes/:id', async (req, res) => {
 
         // 1. Atualiza dados principais incluindo o usuario_id
         await connection.query(
-            "UPDATE clientes SET tipo_pessoa=?, documento=?, razao_social=?, nome_fantasia=?, email_principal=?, usuario_id=? WHERE id=?",
-            [tipo_pessoa, documento, razao_social, nome_fantasia, email, usuario_id || null, id]
+            "UPDATE clientes SET tipo_pessoa=?, documento=?, razao_social=?, nome_fantasia=?, ie=?, email_principal=?, usuario_id=? WHERE id=?",
+            [tipo_pessoa, documento, razao_social, nome_fantasia, ie || null, email, usuario_id || null, id]
         );
 
         // 2. Atualiza Telefones
@@ -166,13 +166,13 @@ app.put('/api/clientes/:id', async (req, res) => {
 
 // CADASTRAR CLIENTE (POST)
 app.post('/api/clientes', async (req, res) => {
-    const { tipo_pessoa, documento, razao_social, nome_fantasia, email, telefones, enderecos, usuario_id } = req.body;
+    const { tipo_pessoa, documento, razao_social, nome_fantasia, ie, email, telefones, enderecos, usuario_id } = req.body;
     const connection = await db.getConnection();
     try {
         await connection.beginTransaction();
         const [resCliente] = await connection.query(
-            "INSERT INTO clientes (tipo_pessoa, documento, razao_social, nome_fantasia, email_principal, usuario_id) VALUES (?, ?, ?, ?, ?, ?)",
-            [tipo_pessoa, documento, razao_social, nome_fantasia, email, usuario_id || null]
+            "INSERT INTO clientes (tipo_pessoa, documento, razao_social, nome_fantasia, ie, email_principal, usuario_id) VALUES (?, ?, ?, ?, ?,?, ?)",
+            [tipo_pessoa, documento, razao_social, nome_fantasia, ie || null, email, usuario_id || null]
         );
         const clienteId = resCliente.insertId;
 
