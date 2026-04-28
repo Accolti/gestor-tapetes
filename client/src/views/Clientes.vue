@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import axios from 'axios'
 
 // Estado do formulário
@@ -13,43 +13,120 @@ const cliente = ref({
   enderecos: [{ logradouro: '', numero: '', complemento: '', cidade: '', estado: '', tipo: 'Comercial' }]
 })
 
+const listaClientes = ref([]) // Nome correto da lista
 const mensagem = ref({ texto: '', tipo: '' })
 
-// Funções para adicionar campos dinâmicos
+// 1. Função para carregar a lista do banco
+const carregarClientes = async () => {
+  try {
+    const user = JSON.parse(localStorage.getItem('usuarioLogado') || '{}');
+    const response = await axios.get('http://localhost:3000/api/clientes', {
+      params: {
+        usuario_id: user.id,
+        nivel: user.nivel // Usando 'nivel' conforme seu localStorage
+      }
+    });
+
+    listaClientes.value = response.data; // Ajustado de 'clientes' para 'listaClientes'
+  } catch (err) {
+    console.error("Erro ao carregar lista:", err);
+  }
+};
+
+onMounted(carregarClientes)
+
+// Funções para adicionar/remover campos
 const addTelefone = () => cliente.value.telefones.push({ numero: '', tipo: 'WhatsApp' })
 const removeTelefone = (index) => cliente.value.telefones.splice(index, 1)
-
-const addEndereco = () => cliente.value.enderecos.push({ logradouro: '', numero: '', cidade: '', estado: '', tipo: 'Entrega' })
+const addEndereco = () => cliente.value.enderecos.push({ logradouro: '', numero: '', complemento: '', cidade: '', estado: '', tipo: 'Comercial' })
 const removeEndereco = (index) => cliente.value.enderecos.splice(index, 1)
 
+// CRUD: Salvar (Novo ou Editar)
 const salvarCliente = async () => {
   try {
-    mensagem.value = { texto: 'Salvando...', tipo: 'info' }
-    // Enviamos para a API (lembre-se que o usuário_id será tratado no backend futuramente)
-    await axios.post('http://localhost:3000/api/clientes', cliente.value)
+    const usuarioObj = JSON.parse(localStorage.getItem('usuarioLogado') || '{}');
     
-    mensagem.value = { texto: '✅ Cliente e contatos salvos com sucesso!', tipo: 'sucesso' }
+    if (!usuarioObj.id) {
+       alert("Erro: Usuário não identificado. Faça login novamente.");
+       return;
+    }
+
+    mensagem.value = { texto: 'Processando...', tipo: 'info' }
+
+    // Adiciona o usuario_id no corpo da requisição
+    const dadosParaEnviar = {
+      ...cliente.value,
+      usuario_id: usuarioObj.id
+    };
+
+    if (cliente.value.id) {
+      // EDITAR
+      await axios.put(`http://localhost:3000/api/clientes/${cliente.value.id}`, dadosParaEnviar);
+      mensagem.value = { texto: '✅ Cliente atualizado com sucesso!', tipo: 'sucesso' };
+    } else {
+      // CADASTRAR NOVO
+      await axios.post('http://localhost:3000/api/clientes', dadosParaEnviar);
+      mensagem.value = { texto: '✅ Cliente cadastrado com sucesso!', tipo: 'sucesso' };
+    }
     
-    // Resetar formulário após sucesso
-    // (Opcional: você pode redirecionar para uma lista de clientes)
+    setTimeout(() => {
+        resetarFormulario();
+        carregarClientes();
+    }, 500);
+
   } catch (error) {
-    mensagem.value = { texto: '❌ Erro ao salvar no banco de dados.', tipo: 'erro' }
+    mensagem.value = { texto: '❌ Erro ao salvar dados.', tipo: 'erro' }
     console.error(error)
   }
+}
+
+const editarCliente = (item) => {
+  cliente.value = { 
+    ...item,
+    telefones: item.telefones && item.telefones.length > 0 ? item.telefones : [{ numero: '', tipo: 'WhatsApp' }],
+    enderecos: item.enderecos && item.enderecos.length > 0 ? item.enderecos : [{ logradouro: '', numero: '', complemento: '', cidade: '', estado: '', tipo: 'Comercial' }]
+  };
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+};
+
+const excluirCliente = async (id) => {
+  if (confirm("Tem certeza que deseja excluir este cliente?")) {
+    try {
+      await axios.delete(`http://localhost:3000/api/clientes/${id}`)
+      carregarClientes()
+    } catch (error) {
+      alert("Erro ao excluir cliente")
+    }
+  }
+}
+
+const resetarFormulario = () => {
+  cliente.value = {
+    tipo_pessoa: 'PJ', documento: '', razao_social: '', nome_fantasia: '', email: '',
+    telefones: [{ numero: '', tipo: 'WhatsApp' }],
+    enderecos: [{ logradouro: '', numero: '', complemento: '', cidade: '', estado: '', tipo: 'Comercial' }]
+  }
+  mensagem.value = { texto: '', tipo: '' }
 }
 </script>
 
 <template>
   <div class="max-w-4xl mx-auto pb-20">
     <div class="flex justify-between items-center mb-6">
-      <h1 class="text-3xl font-bold text-slate-800">Novo Cliente</h1>
-      <button @click="salvarCliente" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 shadow-lg transition">
-        Salvar Cadastro
-      </button>
+      <h1 class="text-3xl font-bold text-slate-800">
+        {{ cliente.id ? 'Editar Cliente' : 'Novo Cliente' }}
+      </h1>
+      <div class="space-x-2">
+        <button v-if="cliente.id" @click="resetarFormulario" class="text-slate-500 font-medium hover:text-slate-700">Cancelar</button>
+        <button @click="salvarCliente" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 shadow-lg transition">
+          {{ cliente.id ? 'Atualizar Cadastro' : 'Salvar Cadastro' }}
+        </button>
+      </div>
     </div>
 
-    <div v-if="mensagem.texto" :class="['p-4 mb-6 rounded-lg font-medium', 
-      mensagem.tipo === 'sucesso' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700']">
+    <div v-if="mensagem.texto" :class="['p-4 mb-6 rounded-lg font-medium shadow-sm', 
+      mensagem.tipo === 'sucesso' ? 'bg-green-100 text-green-700' : 
+      mensagem.tipo === 'info' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700']">
       {{ mensagem.texto }}
     </div>
 
@@ -61,26 +138,26 @@ const salvarCliente = async () => {
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label class="block text-sm font-medium text-slate-500">Tipo de Pessoa</label>
-            <select v-model="cliente.tipo_pessoa" class="w-full border rounded-lg p-2 mt-1 outline-none focus:ring-2 focus:ring-blue-500">
+            <select v-model="cliente.tipo_pessoa" class="w-full border rounded-lg p-2 mt-1 outline-none focus:ring-2 focus:ring-blue-500 transition">
               <option value="PF">Pessoa Física (CPF)</option>
               <option value="PJ">Pessoa Jurídica (CNPJ)</option>
             </select>
           </div>
           <div>
             <label class="block text-sm font-medium text-slate-500">{{ cliente.tipo_pessoa === 'PJ' ? 'CNPJ' : 'CPF' }}</label>
-            <input v-model="cliente.documento" type="text" class="w-full border rounded-lg p-2 mt-1" placeholder="00.000.000/0000-00">
+            <input v-model="cliente.documento" type="text" class="w-full border rounded-lg p-2 mt-1 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="00.000.000/0000-00">
           </div>
           <div class="md:col-span-2">
             <label class="block text-sm font-medium text-slate-500">Razão Social / Nome Completo</label>
-            <input v-model="cliente.razao_social" type="text" class="w-full border rounded-lg p-2 mt-1">
+            <input v-model="cliente.razao_social" type="text" class="w-full border rounded-lg p-2 mt-1 focus:ring-2 focus:ring-blue-500 outline-none">
           </div>
           <div v-if="cliente.tipo_pessoa === 'PJ'">
             <label class="block text-sm font-medium text-slate-500">Nome Fantasia</label>
-            <input v-model="cliente.nome_fantasia" type="text" class="w-full border rounded-lg p-2 mt-1">
+            <input v-model="cliente.nome_fantasia" type="text" class="w-full border rounded-lg p-2 mt-1 focus:ring-2 focus:ring-blue-500 outline-none">
           </div>
           <div>
             <label class="block text-sm font-medium text-slate-500">E-mail Principal</label>
-            <input v-model="cliente.email" type="email" class="w-full border rounded-lg p-2 mt-1" placeholder="exemplo@email.com">
+            <input v-model="cliente.email" type="email" class="w-full border rounded-lg p-2 mt-1 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="exemplo@email.com">
           </div>
         </div>
       </section>
@@ -92,20 +169,20 @@ const salvarCliente = async () => {
           </h2>
           <button @click="addTelefone" class="text-blue-600 text-sm font-bold hover:underline">+ Adicionar Outro</button>
         </div>
-        <div v-for="(tel, index) in cliente.telefones" :key="index" class="flex gap-4 mb-3 items-end">
+        <div v-for="(tel, index) in cliente.telefones" :key="index" class="flex gap-4 mb-3 items-end bg-slate-50 p-3 rounded-lg border border-slate-100">
           <div class="flex-1">
-            <label class="text-xs text-slate-400">Número</label>
-            <input v-model="tel.numero" type="text" class="w-full border rounded-lg p-2" placeholder="(00) 00000-0000">
+            <label class="text-xs text-slate-400 font-bold uppercase">Número</label>
+            <input v-model="tel.numero" type="text" class="w-full border rounded p-2" placeholder="(00) 00000-0000">
           </div>
           <div class="w-32">
-            <label class="text-xs text-slate-400">Tipo</label>
-            <select v-model="tel.tipo" class="w-full border rounded-lg p-2">
+            <label class="text-xs text-slate-400 font-bold uppercase">Tipo</label>
+            <select v-model="tel.tipo" class="w-full border rounded p-2">
               <option>WhatsApp</option>
               <option>Celular</option>
               <option>Fixo</option>
             </select>
           </div>
-          <button @click="removeTelefone(index)" v-if="cliente.telefones.length > 1" class="text-red-500 mb-2 font-bold px-2">✕</button>
+          <button @click="removeTelefone(index)" v-if="cliente.telefones.length > 1" class="text-red-500 mb-2 font-bold px-2 hover:bg-red-50 rounded">✕</button>
         </div>
       </section>
 
@@ -116,38 +193,70 @@ const salvarCliente = async () => {
           </h2>
           <button @click="addEndereco" class="text-blue-600 text-sm font-bold hover:underline">+ Adicionar Outro</button>
         </div>
-        <div v-for="(end, index) in cliente.enderecos" :key="index" class="p-4 bg-slate-50 rounded-lg mb-4 relative">
-          <button @click="removeEndereco(index)" v-if="cliente.enderecos.length > 1" class="absolute top-2 right-2 text-red-400 hover:text-red-600">Remover</button>
+        <div v-for="(end, index) in cliente.enderecos" :key="index" class="p-4 bg-slate-50 rounded-lg mb-4 border border-slate-100 relative">
+          <button @click="removeEndereco(index)" v-if="cliente.enderecos.length > 1" class="absolute top-2 right-2 text-red-400 hover:text-red-600 font-bold">✕</button>
           
-          <div class="grid grid-cols-3 gap-4">
-            <div class="col-span-2">
-              <label class="text-xs text-slate-400">Rua / Logradouro</label>
-              <input v-model="end.logradouro" type="text" class="w-full border rounded-lg p-2">
+          <div class="grid grid-cols-12 gap-4"> 
+            <div class="col-span-12 md:col-span-5">
+              <label class="text-xs text-slate-400 font-bold uppercase">Rua / Logradouro</label>
+              <input v-model="end.logradouro" type="text" class="w-full border rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none">
             </div>
-            <div>
-              <label class="text-xs text-slate-400">Nº</label>
-              <input v-model="end.numero" type="text" class="w-full border rounded-lg p-2">
+            <div class="col-span-6 md:col-span-2">
+              <label class="text-xs text-slate-400 font-bold uppercase">Nº</label>
+              <input v-model="end.numero" type="text" class="w-full border rounded p-2">
             </div>
-            <div class="col-span-1">
-                <label class="text-xs text-slate-400">Complemento</label>
-                <input v-model="end.complemento" type="text" class="w-full border rounded-lg p-2" placeholder="Ex: Apto 101">
+            <div class="col-span-12 md:col-span-3">
+              <label class="text-xs text-slate-400 font-bold uppercase">Complemento</label>
+              <input v-model="end.complemento" type="text" class="w-full border rounded p-2">
             </div>
-            <div>
-              <label class="text-xs text-slate-400">Cidade</label>
-              <input v-model="end.cidade" type="text" class="w-full border rounded-lg p-2">
+            <div class="col-span-6 md:col-span-2">
+              <label class="text-xs text-slate-400 font-bold uppercase">CEP</label>
+              <input v-model="end.cep" type="text" class="w-full border rounded p-2" placeholder="00000-000">
             </div>
-            <div>
-              <label class="text-xs text-slate-400">Estado (UF)</label>
-              <input v-model="end.estado" type="text" maxlength="2" class="w-full border rounded-lg p-2">
+            <div class="col-span-12 md:col-span-6">
+              <label class="text-xs text-slate-400 font-bold uppercase">Cidade</label>
+              <input v-model="end.cidade" type="text" class="w-full border rounded p-2">
             </div>
-            <div>
-              <label class="text-xs text-slate-400">Tipo</label>
-              <select v-model="end.tipo" class="w-full border rounded-lg p-2">
+            <div class="col-span-4 md:col-span-2">
+              <label class="text-xs text-slate-400 font-bold uppercase">UF</label>
+              <input v-model="end.estado" type="text" maxlength="2" class="w-full border rounded p-2 text-center uppercase">
+            </div>
+            <div class="col-span-8 md:col-span-4">
+              <label class="text-xs text-slate-400 font-bold uppercase">Tipo</label>
+              <select v-model="end.tipo" class="w-full border rounded p-2">
                 <option>Comercial</option>
                 <option>Entrega</option>
                 <option>Faturamento</option>
               </select>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+        <h2 class="text-xl font-bold text-slate-700 mb-6">Clientes Cadastrados</h2>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-separate border-spacing-y-2">
+            <thead>
+              <tr class="text-slate-400 text-sm">
+                <th class="pb-3 px-4">Razão Social / Nome</th>
+                <th class="pb-3 px-4">Documento</th>
+                <th class="pb-3 px-4 text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in listaClientes" :key="item.id" class="bg-slate-50 hover:bg-slate-100 transition shadow-sm rounded-lg">
+                <td class="py-4 px-4 font-medium text-slate-700 rounded-l-lg">{{ item.razao_social }}</td>
+                <td class="py-4 px-4 text-slate-500 text-sm">{{ item.documento }}</td>
+                <td class="py-4 px-4 text-right space-x-4 rounded-r-lg">
+                  <button @click="editarCliente(item)" class="text-blue-600 font-bold hover:text-blue-800 transition">Editar</button>
+                  <button @click="excluirCliente(item.id)" class="text-red-500 font-bold hover:text-red-700 transition">Excluir</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="listaClientes.length === 0" class="py-10 text-center text-slate-400 italic">
+            Nenhum cliente cadastrado no momento.
           </div>
         </div>
       </section>
