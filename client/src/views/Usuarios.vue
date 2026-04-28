@@ -19,7 +19,7 @@ const mensagem = ref({ texto: '', tipo: '' })
 
 const carregarUsuarios = async () => {
   try {
-    const res = await axios.get('http://localhost:3000/api/usuarios')
+    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/usuarios`)
     listaUsuarios.value = res.data
   } catch (error) {
     console.error("Erro ao carregar usuários:", error)
@@ -38,10 +38,10 @@ const salvarUsuario = async () => {
   try {
     mensagem.value = { texto: 'Processando...', tipo: 'info' }
     if (usuario.value.id) {
-      await axios.put(`http://localhost:3000/api/usuarios/${usuario.value.id}`, usuario.value)
+      await axios.put(`${import.meta.env.VITE_API_URL}/api/usuarios/${usuario.value.id}`, usuario.value)
       mensagem.value = { texto: '✅ Usuário atualizado!', tipo: 'sucesso' }
     } else {
-      await axios.post('http://localhost:3000/api/usuarios', usuario.value)
+      await axios.post(`${import.meta.env.VITE_API_URL}/api/usuarios`, usuario.value)
       mensagem.value = { texto: '✅ Usuário cadastrado!', tipo: 'sucesso' }
     }
     resetarForm()

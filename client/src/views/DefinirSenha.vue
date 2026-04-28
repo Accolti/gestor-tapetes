@@ -15,7 +15,7 @@ const verificarEmail = async () => {
   try {
     erro.value = ''
     // Rota que verifica se o usuário existe e se está ativo
-    await axios.post('http://localhost:3000/api/usuarios/verificar-email', { email: email.value })
+    await axios.post('${import.meta.env.VITE_API_URL}/api/usuarios/verificar-email', { email: email.value })
     etapa.value = 2
   } catch (err) {
     erro.value = "E-mail não encontrado ou usuário inativo."
@@ -27,7 +27,7 @@ const atualizarSenha = async () => {
     return erro.value = "As senhas não coincidem."
   }
   try {
-    await axios.post('http://localhost:3000/api/usuarios/definir-senha', {
+    await axios.post('${import.meta.env.VITE_API_URL}/api/usuarios/definir-senha', {
       email: email.value,
       senha: novaSenha.value
     })

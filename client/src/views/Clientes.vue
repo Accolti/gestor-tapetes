@@ -13,21 +13,23 @@ const cliente = ref({
   enderecos: [{ logradouro: '', numero: '', complemento: '', cidade: '', estado: '', tipo: 'Comercial' }]
 })
 
-const listaClientes = ref([]) // Nome correto da lista
+const listaClientes = ref([]) 
 const mensagem = ref({ texto: '', tipo: '' })
 
 // 1. Função para carregar a lista do banco
 const carregarClientes = async () => {
   try {
     const user = JSON.parse(localStorage.getItem('usuarioLogado') || '{}');
-    const response = await axios.get('http://localhost:3000/api/clientes', {
+    
+    // CORREÇÃO: Usando crases (`) em vez de aspas simples (')
+    const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/clientes`, {
       params: {
         usuario_id: user.id,
-        nivel: user.nivel // Usando 'nivel' conforme seu localStorage
+        nivel: user.nivel 
       }
     });
 
-    listaClientes.value = response.data; // Ajustado de 'clientes' para 'listaClientes'
+    listaClientes.value = response.data; 
   } catch (err) {
     console.error("Erro ao carregar lista:", err);
   }
@@ -35,13 +37,11 @@ const carregarClientes = async () => {
 
 onMounted(carregarClientes)
 
-// Funções para adicionar/remover campos
 const addTelefone = () => cliente.value.telefones.push({ numero: '', tipo: 'WhatsApp' })
 const removeTelefone = (index) => cliente.value.telefones.splice(index, 1)
 const addEndereco = () => cliente.value.enderecos.push({ logradouro: '', numero: '', complemento: '', cidade: '', estado: '', tipo: 'Comercial' })
 const removeEndereco = (index) => cliente.value.enderecos.splice(index, 1)
 
-// CRUD: Salvar (Novo ou Editar)
 const salvarCliente = async () => {
   try {
     const usuarioObj = JSON.parse(localStorage.getItem('usuarioLogado') || '{}');
@@ -53,19 +53,18 @@ const salvarCliente = async () => {
 
     mensagem.value = { texto: 'Processando...', tipo: 'info' }
 
-    // Adiciona o usuario_id no corpo da requisição
     const dadosParaEnviar = {
       ...cliente.value,
       usuario_id: usuarioObj.id
     };
 
     if (cliente.value.id) {
-      // EDITAR
-      await axios.put(`http://localhost:3000/api/clientes/${cliente.value.id}`, dadosParaEnviar);
+      // EDITAR - CORREÇÃO: Usando crases (`)
+      await axios.put(`${import.meta.env.VITE_API_URL}/api/clientes/${cliente.value.id}`, dadosParaEnviar);
       mensagem.value = { texto: '✅ Cliente atualizado com sucesso!', tipo: 'sucesso' };
     } else {
-      // CADASTRAR NOVO
-      await axios.post('http://localhost:3000/api/clientes', dadosParaEnviar);
+      // NOVO - CORREÇÃO: Usando crases (`)
+      await axios.post(`${import.meta.env.VITE_API_URL}/api/clientes`, dadosParaEnviar);
       mensagem.value = { texto: '✅ Cliente cadastrado com sucesso!', tipo: 'sucesso' };
     }
     
@@ -83,6 +82,8 @@ const salvarCliente = async () => {
 const editarCliente = (item) => {
   cliente.value = { 
     ...item,
+    // Mapeamento caso o backend retorne email_principal em vez de email
+    email: item.email || item.email_principal, 
     telefones: item.telefones && item.telefones.length > 0 ? item.telefones : [{ numero: '', tipo: 'WhatsApp' }],
     enderecos: item.enderecos && item.enderecos.length > 0 ? item.enderecos : [{ logradouro: '', numero: '', complemento: '', cidade: '', estado: '', tipo: 'Comercial' }]
   };
@@ -92,7 +93,8 @@ const editarCliente = (item) => {
 const excluirCliente = async (id) => {
   if (confirm("Tem certeza que deseja excluir este cliente?")) {
     try {
-      await axios.delete(`http://localhost:3000/api/clientes/${id}`)
+      // CORREÇÃO: Usando crases (`)
+      await axios.delete(`${import.meta.env.VITE_API_URL}/api/clientes/${id}`)
       carregarClientes()
     } catch (error) {
       alert("Erro ao excluir cliente")
@@ -158,77 +160,6 @@ const resetarFormulario = () => {
           <div>
             <label class="block text-sm font-medium text-slate-500">E-mail Principal</label>
             <input v-model="cliente.email" type="email" class="w-full border rounded-lg p-2 mt-1 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="exemplo@email.com">
-          </div>
-        </div>
-      </section>
-
-      <section class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-        <div class="flex justify-between items-center mb-4 border-b pb-2">
-          <h2 class="text-lg font-semibold text-slate-700 flex items-center">
-            <span class="mr-2">📞</span> Telefones de Contato
-          </h2>
-          <button @click="addTelefone" class="text-blue-600 text-sm font-bold hover:underline">+ Adicionar Outro</button>
-        </div>
-        <div v-for="(tel, index) in cliente.telefones" :key="index" class="flex gap-4 mb-3 items-end bg-slate-50 p-3 rounded-lg border border-slate-100">
-          <div class="flex-1">
-            <label class="text-xs text-slate-400 font-bold uppercase">Número</label>
-            <input v-model="tel.numero" type="text" class="w-full border rounded p-2" placeholder="(00) 00000-0000">
-          </div>
-          <div class="w-32">
-            <label class="text-xs text-slate-400 font-bold uppercase">Tipo</label>
-            <select v-model="tel.tipo" class="w-full border rounded p-2">
-              <option>WhatsApp</option>
-              <option>Celular</option>
-              <option>Fixo</option>
-            </select>
-          </div>
-          <button @click="removeTelefone(index)" v-if="cliente.telefones.length > 1" class="text-red-500 mb-2 font-bold px-2 hover:bg-red-50 rounded">✕</button>
-        </div>
-      </section>
-
-      <section class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-        <div class="flex justify-between items-center mb-4 border-b pb-2">
-          <h2 class="text-lg font-semibold text-slate-700 flex items-center">
-            <span class="mr-2">📍</span> Endereços
-          </h2>
-          <button @click="addEndereco" class="text-blue-600 text-sm font-bold hover:underline">+ Adicionar Outro</button>
-        </div>
-        <div v-for="(end, index) in cliente.enderecos" :key="index" class="p-4 bg-slate-50 rounded-lg mb-4 border border-slate-100 relative">
-          <button @click="removeEndereco(index)" v-if="cliente.enderecos.length > 1" class="absolute top-2 right-2 text-red-400 hover:text-red-600 font-bold">✕</button>
-          
-          <div class="grid grid-cols-12 gap-4"> 
-            <div class="col-span-12 md:col-span-5">
-              <label class="text-xs text-slate-400 font-bold uppercase">Rua / Logradouro</label>
-              <input v-model="end.logradouro" type="text" class="w-full border rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none">
-            </div>
-            <div class="col-span-6 md:col-span-2">
-              <label class="text-xs text-slate-400 font-bold uppercase">Nº</label>
-              <input v-model="end.numero" type="text" class="w-full border rounded p-2">
-            </div>
-            <div class="col-span-12 md:col-span-3">
-              <label class="text-xs text-slate-400 font-bold uppercase">Complemento</label>
-              <input v-model="end.complemento" type="text" class="w-full border rounded p-2">
-            </div>
-            <div class="col-span-6 md:col-span-2">
-              <label class="text-xs text-slate-400 font-bold uppercase">CEP</label>
-              <input v-model="end.cep" type="text" class="w-full border rounded p-2" placeholder="00000-000">
-            </div>
-            <div class="col-span-12 md:col-span-6">
-              <label class="text-xs text-slate-400 font-bold uppercase">Cidade</label>
-              <input v-model="end.cidade" type="text" class="w-full border rounded p-2">
-            </div>
-            <div class="col-span-4 md:col-span-2">
-              <label class="text-xs text-slate-400 font-bold uppercase">UF</label>
-              <input v-model="end.estado" type="text" maxlength="2" class="w-full border rounded p-2 text-center uppercase">
-            </div>
-            <div class="col-span-8 md:col-span-4">
-              <label class="text-xs text-slate-400 font-bold uppercase">Tipo</label>
-              <select v-model="end.tipo" class="w-full border rounded p-2">
-                <option>Comercial</option>
-                <option>Entrega</option>
-                <option>Faturamento</option>
-              </select>
-            </div>
           </div>
         </div>
       </section>

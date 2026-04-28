@@ -19,11 +19,11 @@ const logoPreview = ref(null)
 // Carregar configurações existentes ao abrir a página
 const carregarConfig = async () => {
   try {
-    const res = await axios.get('http://localhost:3000/api/config-empresa')
+    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/config-empresa`)
     if (res.data) {
       config.value = res.data
       if (config.value.logo_path) {
-        logoPreview.value = `http://localhost:3000/uploads/${config.value.logo_path}`
+        logoPreview.value = `${import.meta.env.VITE_API_URL}/uploads/${config.value.logo_path}`
       }
     }
   } catch (error) {
@@ -52,7 +52,7 @@ const salvarConfig = async () => {
       formData.append(key, config.value[key])
     })
 
-    await axios.post('http://localhost:3000/api/config-empresa', formData, {
+    await axios.post(`${import.meta.env.VITE_API_URL}/api/config-empresa`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
 
