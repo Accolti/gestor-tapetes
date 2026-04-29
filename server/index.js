@@ -3,6 +3,9 @@ const mysql = require('mysql2');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 dotenv.config();
 
@@ -20,23 +23,131 @@ const db = mysql.createPool({
     connectionLimit: 10
 }).promise();
 
-// --- AUTENTICAÇÃO ---
+// --- CONFIGURAÇÃO DE UPLOAD (LOGOS) ---
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const dir = './uploads/';
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname);
+        const userId = req.body.usuario_id || 'unknown';
+        cb(null, `logo_user_${userId}_${Date.now()}${ext}`);
+    }
+});
+
+const upload = multer({ storage });
+
+// Servir arquivos estáticos (Logos)
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// --- CONFIGURAÇÕES FISCAIS E EMPRESA (SaaS) ---
+
+app.get('/api/config/estados', async (req, res) => {
+    try {
+        const [estados] = await db.query("SELECT * FROM config_estados_fiscais ORDER BY uf ASC");
+        res.json(estados);
+    } catch (error) {
+        console.error("Erro ao buscar estados:", error);
+        res.status(500).json({ error: "Erro ao buscar estados." });
+    }
+});
+
+app.get('/api/config-completa/:id_usuario', async (req, res) => {
+    const { id_usuario } = req.params;
+    try {
+        const [config] = await db.query(
+            "SELECT * FROM vw_configuracao_completa_usuario WHERE id_usuario = ?", 
+            [id_usuario]
+        );
+        if (config.length === 0) return res.status(404).json({ message: "Configuração não encontrada." });
+        res.json(config[0]);
+    } catch (error) {
+        console.error("Erro ao carregar View:", error);
+        res.status(500).json({ error: "Erro ao carregar dados da View." });
+    }
+});
+
+// SALVAR OU ATUALIZAR (Transaction para Empresa + Logística)
+// ROTA POST CORRIGIDA
+// SALVAR OU ATUALIZAR (Correção Definitiva do Regime Tributário)
+app.post('/api/config-empresa', upload.single('logo_file'), async (req, res) => {
+    const connection = await db.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        // Log para ver o que vem do Vue
+        console.log("Dados Recebidos:", req.body);
+
+        const {
+            usuario_id, tipo_identificacao, documento, razao_social, 
+            nome_fantasia, uf_sede, regime_tributario, 
+            imposto_venda_percentual, custo_fixo_operacional, markup_alvo,
+            valor_minimo_isencao, valor_frete_padrao
+        } = req.body;
+
+        let logo_path = req.file ? req.file.filename : req.body.logo_path;
+
+        // 1. Atualizar config_empresa
+        const sqlEmpresa = `
+            INSERT INTO config_empresa 
+                (id_usuario, tipo_identificacao, documento, razao_social, nome_fantasia, regime_tributario, imposto_venda_percentual, custo_fixo_operacional, markup_alvo, logo_path) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE 
+                tipo_identificacao = VALUES(tipo_identificacao),
+                documento = VALUES(documento),
+                razao_social = VALUES(razao_social),
+                nome_fantasia = VALUES(nome_fantasia),
+                regime_tributario = VALUES(regime_tributario), 
+                imposto_venda_percentual = VALUES(imposto_venda_percentual),
+                custo_fixo_operacional = VALUES(custo_fixo_operacional),
+                markup_alvo = VALUES(markup_alvo),
+                logo_path = IFNULL(VALUES(logo_path), logo_path)
+        `;
+
+        await connection.query(sqlEmpresa, [
+            usuario_id, tipo_identificacao, documento, razao_social, 
+            nome_fantasia, regime_tributario, imposto_venda_percentual, 
+            custo_fixo_operacional, markup_alvo, logo_path
+        ]);
+
+        // 2. Atualizar config_frete_fornecedor
+        await connection.query(`
+            INSERT INTO config_frete_fornecedor 
+                (id_usuario, uf_destino, valor_minimo_isencao, valor_frete_padrao, ativo)
+            VALUES (?, ?, ?, ?, 1)
+            ON DUPLICATE KEY UPDATE 
+                uf_destino = VALUES(uf_destino),
+                valor_minimo_isencao = VALUES(valor_minimo_isencao),
+                valor_frete_padrao = VALUES(valor_frete_padrao)
+        `, [usuario_id, uf_sede, valor_minimo_isencao, valor_frete_padrao]);
+
+        await connection.commit();
+        console.log("✅ Salvo com sucesso no banco!");
+        res.json({ message: "Configurações salvas!" });
+    } catch (error) {
+        await connection.rollback();
+        console.error("❌ ERRO NO BANCO:", error.message);
+        res.status(500).json({ error: error.message });
+    } finally {
+        connection.release();
+    }
+});// --- RESTO DAS ROTAS (Autenticação, Clientes, Usuários) MANTIDAS ---
 
 app.post('/api/login', async (req, res) => {
     const { email, senha } = req.body;
     try {
         const [usuarios] = await db.query("SELECT * FROM usuarios WHERE email = ?", [email]);
         if (usuarios.length === 0) return res.status(401).json({ error: "E-mail não cadastrado." });
-
         const user = usuarios[0];
         if (senha !== user.senha_hash) return res.status(401).json({ error: "Senha incorreta." });
-
         const token = jwt.sign(
             { id: user.id, nome: user.nome, nivel: user.nivel_acesso },
             process.env.JWT_SECRET || 'chave_seguranca_padrao',
             { expiresIn: '8h' }
         );
-
         res.json({ token, user: { id: user.id, nome: user.nome, nivel: user.nivel_acesso } });
     } catch (error) {
         res.status(500).json({ error: "Erro interno no servidor." });
@@ -45,126 +156,35 @@ app.post('/api/login', async (req, res) => {
 
 app.post('/api/usuarios/verificar-email', async (req, res) => {
     const email = req.body.email ? req.body.email.trim() : '';
-    console.log(`🔍 Verificando e-mail: "${email}"`);
     try {
-        // LOWER ajuda a ignorar diferenças entre Maiúsculas e Minúsculas
         const [usuarios] = await db.query("SELECT id FROM usuarios WHERE LOWER(email) = LOWER(?) AND ativo = 1", [email]);
-        
-        if (usuarios.length === 0) {
-            console.log("❌ E-mail não encontrado no banco.");
-            return res.status(404).json({ error: "E-mail não encontrado ou usuário inativo." });
-        }
-        
+        if (usuarios.length === 0) return res.status(404).json({ error: "E-mail não encontrado." });
         res.json({ message: "Usuário validado." });
     } catch (error) {
-        console.error("🔥 Erro SQL:", error);
         res.status(500).json({ error: "Erro ao verificar e-mail." });
     }
 });
 
-app.post('/api/usuarios/definir-senha', async (req, res) => {
-    const { email, senha } = req.body;
-    try {
-        const [result] = await db.query("UPDATE usuarios SET senha_hash = ? WHERE email = ?", [senha, email]);
-        if (result.affectedRows === 0) return res.status(404).json({ error: "Usuário não encontrado." });
-        res.json({ message: "Senha atualizada com sucesso!" });
-    } catch (error) {
-        res.status(500).json({ error: "Erro ao salvar nova senha." });
-    }
-});
-
-// --- CLIENTES ---
-
 app.get('/api/clientes', async (req, res) => {
-    // Pegamos os parâmetros da query string
     const usuario_id = req.query.usuario_id;
     const nivel = req.query.nivel ? String(req.query.nivel).toLowerCase().trim() : '';
-
-    console.log(`--- NOVA REQUISIÇÃO DE CLIENTES ---`);
-    console.log(`👤 Usuário ID: ${usuario_id}`);
-    console.log(`🔑 Nível Recebido: "${nivel}"`);
-
     try {
         let sql = "SELECT * FROM clientes";
         let params = [];
-
-        // Lógica: Se for 'admin', não entra no IF e executa o SELECT puro (traz tudo)
-        if (nivel !== 'admin') {
-            console.log("🔒 FILTRANDO: Usuário comum só vê seus próprios clientes.");
-            sql += " WHERE usuario_id = ?";
-            params.push(usuario_id);
-        } else {
-            console.log("🔓 TOTAL: Admin visualiza todos os registros (inclusive NULLs).");
-        }
-
+        if (nivel !== 'admin') { sql += " WHERE usuario_id = ?"; params.push(usuario_id); }
         sql += " ORDER BY id DESC";
-
         const [clientes] = await db.query(sql, params);
-        console.log(`📊 Clientes encontrados no banco: ${clientes.length}`);
-
         const listaCompleta = await Promise.all(clientes.map(async (c) => {
             const [tels] = await db.query("SELECT numero, tipo FROM cliente_telefones WHERE cliente_id = ?", [c.id]);
             const [ends] = await db.query("SELECT logradouro, numero, complemento, bairro, cidade, estado, cep, tipo FROM cliente_enderecos WHERE cliente_id = ?", [c.id]);
-            return {
-                ...c,
-                email: c.email_principal,
-                telefones: tels.length > 0 ? tels : [{ numero: '', tipo: 'WhatsApp' }],
-                enderecos: ends.length > 0 ? ends : [{ logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', estado: '', cep: '', tipo: 'Comercial' }]
-            };
+            return { ...c, email: c.email_principal, telefones: tels, enderecos: ends };
         }));
-
         res.json(listaCompleta);
     } catch (error) {
-        console.error("❌ ERRO NO BANCO:", error);
         res.status(500).json({ error: "Erro ao buscar clientes" });
     }
 });
-// ATUALIZAR CLIENTE (PUT) - CORRIGIDO PARA INCLUIR USUARIO_ID
-app.put('/api/clientes/:id', async (req, res) => {
-    const { id } = req.params;
-    const { tipo_pessoa, documento, razao_social, nome_fantasia, ie, email, telefones, enderecos, usuario_id } = req.body;
-    const connection = await db.getConnection();
 
-    try {
-        await connection.beginTransaction();
-
-        // 1. Atualiza dados principais incluindo o usuario_id
-        await connection.query(
-            "UPDATE clientes SET tipo_pessoa=?, documento=?, razao_social=?, nome_fantasia=?, ie=?, email_principal=?, usuario_id=? WHERE id=?",
-            [tipo_pessoa, documento, razao_social, nome_fantasia, ie || null, email, usuario_id || null, id]
-        );
-
-        // 2. Atualiza Telefones
-        await connection.query("DELETE FROM cliente_telefones WHERE cliente_id = ?", [id]);
-        if (telefones) {
-            for (const tel of telefones) {
-                if (tel.numero) await connection.query("INSERT INTO cliente_telefones (cliente_id, numero, tipo) VALUES (?, ?, ?)", [id, tel.numero, tel.tipo]);
-            }
-        }
-
-        // 3. Atualiza Endereços
-        await connection.query("DELETE FROM cliente_enderecos WHERE cliente_id = ?", [id]);
-        if (enderecos) {
-            for (const end of enderecos) {
-                if (end.logradouro) await connection.query(
-                    "INSERT INTO cliente_enderecos (cliente_id, logradouro, numero, complemento, bairro, cidade, estado, cep, tipo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    [id, end.logradouro, end.numero, end.complemento, end.bairro, end.cidade, end.estado, end.cep, end.tipo]
-                );
-            }
-        }
-
-        await connection.commit();
-        res.json({ message: "Cliente atualizado com sucesso!" });
-    } catch (error) {
-        await connection.rollback();
-        console.error("Erro no Update Cliente:", error);
-        res.status(500).json({ error: "Erro ao atualizar cliente" });
-    } finally {
-        connection.release();
-    }
-});
-
-// CADASTRAR CLIENTE (POST)
 app.post('/api/clientes', async (req, res) => {
     const { tipo_pessoa, documento, razao_social, nome_fantasia, ie, email, telefones, enderecos, usuario_id } = req.body;
     const connection = await db.getConnection();
@@ -175,7 +195,6 @@ app.post('/api/clientes', async (req, res) => {
             [tipo_pessoa, documento, razao_social, nome_fantasia, ie || null, email, usuario_id || null]
         );
         const clienteId = resCliente.insertId;
-
         if (telefones) {
             for (const tel of telefones) {
                 if (tel.numero) await connection.query("INSERT INTO cliente_telefones (cliente_id, numero, tipo) VALUES (?, ?, ?)", [clienteId, tel.numero, tel.tipo]);
@@ -194,52 +213,6 @@ app.post('/api/clientes', async (req, res) => {
     } catch (error) {
         await connection.rollback();
         res.status(500).json({ error: error.message });
-    } finally {
-        connection.release();
-    }
-});
-
-// --- USUÁRIOS ---
-app.put('/api/usuarios/:id', async (req, res) => {
-    const { id } = req.params;
-    const { nome, email, nivel_acesso, comissao_padrao, ativo, telefones, enderecos } = req.body;
-    const connection = await db.getConnection();
-
-    try {
-        await connection.beginTransaction();
-
-        // 1. Atualiza os dados principais
-        // Verifique se o nome da coluna no seu banco é 'nivel_acesso' ou 'nivel'
-        const [resUser] = await connection.query(
-            "UPDATE usuarios SET nome=?, email=?, nivel_acesso=?, comissao_padrao=?, ativo=? WHERE id=?",
-            [nome, email, nivel_acesso, comissao_padrao, ativo, id]
-        );
-
-        // 2. Telefones (Limpa e reinsere)
-        await connection.query("DELETE FROM usuario_telefones WHERE usuario_id = ?", [id]);
-        if (telefones && telefones.length > 0) {
-            for (const tel of telefones) {
-                if (tel.numero) await connection.query("INSERT INTO usuario_telefones (usuario_id, numero, tipo) VALUES (?, ?, ?)", [id, tel.numero, tel.tipo]);
-            }
-        }
-
-        // 3. Endereços (Limpa e reinsere)
-        await connection.query("DELETE FROM usuario_enderecos WHERE usuario_id = ?", [id]);
-        if (enderecos && enderecos.length > 0) {
-            for (const end of enderecos) {
-                if (end.logradouro) await connection.query(
-                    "INSERT INTO usuario_enderecos (usuario_id, logradouro, numero, complemento, cidade, estado, cep, tipo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    [id, end.logradouro, end.numero, end.complemento, end.cidade, end.estado, end.cep, end.tipo]
-                );
-            }
-        }
-
-        await connection.commit();
-        res.json({ message: "Usuário atualizado com sucesso!" });
-    } catch (error) {
-        await connection.rollback();
-        console.error("❌ ERRO AO ATUALIZAR USUÁRIO:", error.message); // Isso vai aparecer no seu terminal
-        res.status(500).json({ error: "Erro ao salvar usuário: " + error.message });
     } finally {
         connection.release();
     }

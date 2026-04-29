@@ -10,7 +10,7 @@
           <span>🏠</span> Início
         </router-link>
         
-        <router-link to="/clientes" class="p-3 hover:bg-slate-800 rounded-lg transition flex items-center gap-3">
+          <router-link to="/clientes" class="p-3 hover:bg-slate-800 rounded-lg transition flex items-center gap-3">
           <span>👥</span> Clientes
         </router-link>
         
