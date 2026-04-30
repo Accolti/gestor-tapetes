@@ -165,6 +165,7 @@ app.post('/api/usuarios/verificar-email', async (req, res) => {
     }
 });
 
+//CLIENTES
 app.get('/api/clientes', async (req, res) => {
     const usuario_id = req.query.usuario_id;
     const nivel = req.query.nivel ? String(req.query.nivel).toLowerCase().trim() : '';
@@ -217,7 +218,66 @@ app.post('/api/clientes', async (req, res) => {
         connection.release();
     }
 });
+// ATUALIZAR CLIENTE (PUT)
+app.put('/api/clientes/:id', async (req, res) => {
+    const { id } = req.params;
+    const { tipo_pessoa, documento, razao_social, nome_fantasia, ie, email, telefones, enderecos } = req.body;
+    const connection = await db.getConnection();
+    try {
+        await connection.beginTransaction();
 
+        // 1. Atualiza dados básicos
+        await connection.query(
+            "UPDATE clientes SET tipo_pessoa=?, documento=?, razao_social=?, nome_fantasia=?, ie=?, email_principal=? WHERE id=?",
+            [tipo_pessoa, documento, razao_social, nome_fantasia, ie, email, id]
+        );
+
+        // 2. Atualiza Telefones (Remove os antigos e insere os novos para simplificar)
+        await connection.query("DELETE FROM cliente_telefones WHERE cliente_id = ?", [id]);
+        if (telefones) {
+            for (const tel of telefones) {
+                if (tel.numero) await connection.query("INSERT INTO cliente_telefones (cliente_id, numero, tipo) VALUES (?, ?, ?)", [id, tel.numero, tel.tipo]);
+            }
+        }
+
+        // 3. Atualiza Endereços (Remove os antigos e insere os novos)
+        await connection.query("DELETE FROM cliente_enderecos WHERE cliente_id = ?", [id]);
+        if (enderecos) {
+            for (const end of enderecos) {
+                if (end.logradouro) await connection.query(
+                    "INSERT INTO cliente_enderecos (cliente_id, logradouro, numero, complemento, cep,  cidade, estado, tipo) VALUES (?, ?, ?, ?, ?, ?, ?,?)",
+                    [id, end.logradouro, end.numero, end.complemento, end.cep, end.cidade, end.estado, end.tipo]
+                );
+            }
+        }
+
+        await connection.commit();
+        res.json({ message: "Cliente atualizado com sucesso!" });
+    } catch (error) {
+        await connection.rollback();
+        res.status(500).json({ error: error.message });
+    } finally {
+        connection.release();
+    }
+});
+
+// EXCLUIR CLIENTE (DELETE)
+app.delete('/api/clientes/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        // As tabelas filhas (telefones/endereços) devem ter ON DELETE CASCADE no banco, 
+        // se não tiverem, precisamos deletar manualmente:
+        await db.query("DELETE FROM cliente_telefones WHERE cliente_id = ?", [id]);
+        await db.query("DELETE FROM cliente_enderecos WHERE cliente_id = ?", [id]);
+        await db.query("DELETE FROM clientes WHERE id = ?", [id]);
+        
+        res.json({ message: "Cliente excluído com sucesso!" });
+    } catch (error) {
+        res.status(500).json({ error: "Erro ao excluir cliente." });
+    }
+});
+
+//USUARIOS
 app.get('/api/usuarios', async (req, res) => {
     try {
         const [usuarios] = await db.query("SELECT id, nome, email, nivel_acesso, comissao_padrao, ativo FROM usuarios ORDER BY nome ASC");
@@ -229,6 +289,86 @@ app.get('/api/usuarios', async (req, res) => {
         res.json(listaCompleta);
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+// ATUALIZAR USUÁRIO (PUT)
+app.put('/api/usuarios/:id', async (req, res) => {
+    const { id } = req.params;
+    const { nome, email, senha_hash, nivel_acesso, comissao_padrao, ativo, telefones, enderecos } = req.body;
+    const connection = await db.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        // 1. Atualiza dados básicos (senha só se for enviada)
+        let sql = "UPDATE usuarios SET nome=?, email=?, nivel_acesso=?, comissao_padrao=?, ativo=? WHERE id=?";
+        let params = [nome, email, nivel_acesso, comissao_padrao, ativo, id];
+        
+        await connection.query(sql, params);
+
+        // 2. Atualiza Telefones
+        await connection.query("DELETE FROM usuario_telefones WHERE usuario_id = ?", [id]);
+        if (telefones) {
+            for (const tel of telefones) {
+                if (tel.numero) await connection.query("INSERT INTO usuario_telefones (usuario_id, numero, tipo) VALUES (?, ?, ?)", [id, tel.numero, tel.tipo]);
+            }
+        }
+
+        // 3. Atualiza Endereços
+        await connection.query("DELETE FROM usuario_enderecos WHERE usuario_id = ?", [id]);
+        if (enderecos) {
+            for (const end of enderecos) {
+                if (end.logradouro) await connection.query(
+                    "INSERT INTO usuario_enderecos (usuario_id, logradouro, numero, complemento, cidade, estado, cep, tipo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    [id, end.logradouro, end.numero, end.complemento, end.cidade, end.estado, end.cep, end.tipo]
+                );
+            }
+        }
+
+        await connection.commit();
+        res.json({ message: "Usuário atualizado com sucesso!" });
+    } catch (error) {
+        await connection.rollback();
+        res.status(500).json({ error: error.message });
+    } finally {
+        connection.release();
+    }
+});
+
+// CRIAR USUÁRIO (POST)
+app.post('/api/usuarios', async (req, res) => {
+    const { nome, email, senha_hash, nivel_acesso, comissao_padrao, telefones, enderecos } = req.body;
+    const connection = await db.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        const [resUser] = await connection.query(
+            "INSERT INTO usuarios (nome, email, senha_hash, nivel_acesso, comissao_padrao, ativo) VALUES (?, ?, ?, ?, ?, 1)",
+            [nome, email, senha_hash, nivel_acesso, comissao_padrao]
+        );
+        const usuarioId = resUser.insertId;
+
+        if (telefones) {
+            for (const tel of telefones) {
+                if (tel.numero) await connection.query("INSERT INTO usuario_telefones (usuario_id, numero, tipo) VALUES (?, ?, ?)", [usuarioId, tel.numero, tel.tipo]);
+            }
+        }
+        if (enderecos) {
+            for (const end of enderecos) {
+                if (end.logradouro) await connection.query(
+                    "INSERT INTO usuario_enderecos (usuario_id, logradouro, numero, complemento, cidade, estado, cep, tipo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    [usuarioId, end.logradouro, end.numero, end.complemento, end.cidade, end.estado, end.cep, end.tipo]
+                );
+            }
+        }
+
+        await connection.commit();
+        res.status(201).json({ message: "Usuário cadastrado!" });
+    } catch (error) {
+        await connection.rollback();
+        res.status(500).json({ error: error.message });
+    } finally {
+        connection.release();
     }
 });
 

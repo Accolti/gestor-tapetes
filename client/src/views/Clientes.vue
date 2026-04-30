@@ -11,7 +11,7 @@ const cliente = ref({
   ie: '',
   email: '',
   telefones: [{ numero: '', tipo: 'WhatsApp' }],
-  enderecos: [{ logradouro: '', numero: '', complemento: '', cidade: '', estado: '', tipo: 'Comercial' }]
+  enderecos: [{ logradouro: '', numero: '', complemento: '', cidade: '', estado: '', cep:'',  tipo: 'Comercial' }]
 })
 
 const listaClientes = ref([]) 
@@ -47,8 +47,8 @@ const salvarCliente = async () => {
     const usuarioObj = JSON.parse(localStorage.getItem('usuarioLogado') || '{}');
     
     if (!usuarioObj.id) {
-       alert("Erro: Usuário não identificado. Faça login novamente.");
-       return;
+        alert("Erro: Usuário não identificado. Faça login novamente.");
+        return;
     }
 
     mensagem.value = { texto: 'Processando...', tipo: 'info' }
@@ -110,7 +110,7 @@ const resetarFormulario = () => {
 </script>
 
 <template>
-  <div class="max-w-4xl mx-auto pb-20">
+  <div class="max-w-4xl mx-auto pb-20 p-4">
     <div class="flex justify-between items-center mb-6">
       <h1 class="text-3xl font-bold text-slate-800">
         {{ cliente.id ? 'Editar Cliente' : 'Novo Cliente' }}
@@ -169,6 +169,79 @@ const resetarFormulario = () => {
         </div>
       </section>
 
+      <section class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+        <div class="flex justify-between items-center mb-4 border-b pb-2">
+            <h2 class="text-lg font-semibold text-slate-700 flex items-center">
+                <span class="mr-2">📞</span> Telefones
+            </h2>
+            <button @click="addTelefone" class="text-blue-600 font-bold text-sm hover:underline">+ Adicionar</button>
+        </div>
+        <div class="space-y-3">
+          <div v-for="(tel, index) in cliente.telefones" :key="index" class="flex gap-2">
+            <input v-model="tel.numero" type="text" placeholder="(00) 00000-0000" class="flex-1 border rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500">
+            <select v-model="tel.tipo" class="border rounded-lg p-2 outline-none">
+              <option>WhatsApp</option>
+              <option>Celular</option>
+              <option>Fixo</option>
+            </select>
+            <button @click="removeTelefone(index)" class="text-red-500 px-2 hover:bg-red-50 rounded" v-if="cliente.telefones.length > 1">✕</button>
+          </div>
+        </div>
+      </section>
+
+<section class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+  <div class="flex justify-between items-center mb-4 border-b pb-2">
+    <h2 class="text-lg font-semibold text-slate-700 flex items-center">
+      <span class="mr-2">📍</span> Endereços
+    </h2>
+    <button @click="addEndereco" class="text-blue-600 font-bold text-sm hover:underline">+ Adicionar</button>
+  </div>
+
+  <div v-for="(end, index) in cliente.enderecos" :key="index" class="p-4 bg-slate-50 rounded-lg border border-slate-200 mb-4 relative shadow-inner">
+    <button @click="removeEndereco(index)" class="absolute top-2 right-2 text-red-500 text-xs font-bold" v-if="cliente.enderecos.length > 1">Remover</button>
+    
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+      <div>
+        <label class="block text-[10px] font-bold text-slate-400 uppercase">CEP</label>
+        <input v-model="end.cep" type="text" placeholder="00000-000" class="w-full border rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none">
+      </div>
+
+      <div class="md:col-span-2">
+        <label class="block text-[10px] font-bold text-slate-400 uppercase">Logradouro</label>
+        <input v-model="end.logradouro" type="text" class="w-full border rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none">
+      </div>
+
+      <div>
+        <label class="block text-[10px] font-bold text-slate-400 uppercase">Nº</label>
+        <input v-model="end.numero" type="text" class="w-full border rounded p-2 outline-none">
+      </div>
+
+      <div class="md:col-span-2">
+        <label class="block text-[10px] font-bold text-slate-400 uppercase">Complemento</label>
+        <input v-model="end.complemento" type="text" class="w-full border rounded p-2 outline-none">
+      </div>
+
+      <div>
+        <label class="block text-[10px] font-bold text-slate-400 uppercase">Cidade</label>
+        <input v-model="end.cidade" type="text" class="w-full border rounded p-2 outline-none">
+      </div>
+
+      <div>
+        <label class="block text-[10px] font-bold text-slate-400 uppercase">UF</label>
+        <input v-model="end.estado" maxlength="2" class="w-full border rounded p-2 outline-none">
+      </div>
+
+      <div class="md:col-span-4">
+        <label class="block text-[10px] font-bold text-slate-400 uppercase">Tipo</label>
+        <select v-model="end.tipo" class="w-full border rounded p-2 outline-none">
+          <option>Comercial</option>
+          <option>Residencial</option>
+          <option>Entrega</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</section>
       <section class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
         <h2 class="text-xl font-bold text-slate-700 mb-6">Clientes Cadastrados</h2>
         <div class="overflow-x-auto">
