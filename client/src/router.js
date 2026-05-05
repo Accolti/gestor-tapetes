@@ -4,6 +4,7 @@ import Clientes from '@/views/Clientes.vue'
 import Simulador from '@/views/Simulador.vue'
 import Usuarios from '@/views/Usuarios.vue'
 import Configuracoes from '@/views/Configuracoes.vue'
+import Orcamento from '@/views/Orcamento.vue'
 import Login from '@/views/Login.vue'
 import DefinirSenha from '@/views/DefinirSenha.vue' // <--- ADICIONE ESTE IMPORT
 
@@ -14,6 +15,7 @@ const routes = [
   { path: '/clientes', component: Clientes },
   { path: '/simulador', component: Simulador },
   { path: '/usuarios', component: Usuarios },
+  { path: '/orcamento', component: Orcamento },
   { path: '/configuracoes', component: Configuracoes },
 ]
 

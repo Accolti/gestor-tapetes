@@ -43,6 +43,92 @@ const upload = multer({ storage });
 // Servir arquivos estáticos (Logos)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+
+//CONFIGURAÇÕES REFERENTES AO ORÇAMENTO
+// 1. FILTRO 1: Lista todos os produtos (VW_FILTRO_PRODUTOS)
+app.get('/api/produtos-lista', async (req, res) => {
+    try {
+        const [rows] = await db.query("SELECT * FROM vw_filtro_produtos");
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: "Erro ao buscar lista de produtos" });
+    }
+});
+
+// 2. FILTROS 2, 3 e 4: Busca as opções disponíveis para um produto específico
+app.get('/api/produto-detalhes/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        // Buscamos as combinações únicas para este produto
+        const [rows] = await db.query(
+            "SELECT DISTINCT id_produto, id_matriz_preco, attr_linha, attr_tipo, attr_nivel FROM vw_filtro_matriz_atributos WHERE id_produto = ?", 
+            [id]
+        );
+
+        // Organizamos os dados para facilitar o trabalho do Vue
+        const detalhes = {
+            linhas: [...new Set(rows.map(r => r.attr_linha))].filter(Boolean),
+            tipos: [...new Set(rows.map(r => r.attr_tipo))].filter(Boolean),
+            niveis: [...new Set(rows.map(r => r.attr_nivel))].filter(Boolean)
+        };
+
+        res.json(detalhes);
+    } catch (error) {
+        res.status(500).json({ error: "Erro ao buscar detalhes do produto" });
+    }
+});
+
+// 3. RESULTADO FINAL: Busca o preço e dados completos após selecionar os 4 filtros
+app.get('/api/produto-preco-final', async (req, res) => {
+    const { produtoId, linha, tipo, nivel } = req.query;
+    
+    try {
+        // Buscamos na view detalhada usando os filtros de texto selecionados
+        const [rows] = await db.query(
+            `SELECT * FROM vw_produto_completo_detalhado 
+             WHERE id_produto = ? AND attr_linha <=> ? AND attr_tipo <=> ? AND attr_nivel <=> ?`,
+            [produtoId, linha || null, tipo || null, nivel || null]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: "Produto não encontrado na matriz." });
+        }
+
+        // Como um produto pode ter múltiplos acessórios na view (devido ao join), 
+        // vamos retornar o primeiro registro para pegar o preço base e, 
+        // se precisar, você pode tratar a lista de acessórios depois.
+        res.json(rows[0]); 
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Erro ao buscar detalhes finais do produto." });
+    }
+});
+// 1. Rota para carregar a lista de acessórios (Filtro 5)
+app.get('/api/produto-acessorios/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const [rows] = await db.query("SELECT * FROM vw_filtro_acessorios WHERE id_produto = ?", [id]);
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: "Erro ao buscar acessórios" });
+    }
+});
+
+// 2. Rota do Preço Final (Apenas a Matriz, o acessório tratamos no Vue)
+app.get('/api/produto-preco-final', async (req, res) => {
+    const { produtoId, linha, tipo, nivel } = req.query;
+    try {
+        const [rows] = await db.query(
+            "SELECT * FROM vw_produto_completo_detalhado WHERE id_produto = ? AND attr_linha = ? AND attr_tipo = ? AND attr_nivel = ?",
+            [produtoId, linha, tipo, nivel]
+        );
+        res.json(rows[0] || {});
+    } catch (error) {
+        res.status(500).json({ error: "Erro ao buscar preço final" });
+    }
+});
+//FIM CONFIGIRAÇÕES REFERENTES AO ORÇAMENTO
+
 // --- CONFIGURAÇÕES FISCAIS E EMPRESA (SaaS) ---
 
 app.get('/api/config/estados', async (req, res) => {

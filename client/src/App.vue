@@ -18,6 +18,10 @@
           <span>👤</span> Usuários
         </router-link>
 
+        <router-link to="/orcamento" class="p-3 hover:bg-slate-800 rounded-lg transition flex items-center gap-3">
+          <span>👤</span> Orçamento
+        </router-link>
+
         <router-link to="/simulador" class="p-3 hover:bg-slate-800 rounded-lg transition flex items-center gap-3">
           <span>📊</span> Simulador
         </router-link>
