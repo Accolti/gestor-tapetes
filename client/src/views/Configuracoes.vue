@@ -1,11 +1,9 @@
 <script setup lang="js">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import axios from 'axios'
 
-// Nome do componente para evitar erro de multi-word do ESLint
 defineOptions({ name: 'ConfiguracoesEmpresa' })
 
-// Recupera os dados do usuário logado no navegador
 const usuarioLogado = JSON.parse(localStorage.getItem('usuarioLogado') || '{}')
 
 const config = ref({
@@ -21,14 +19,19 @@ const config = ref({
   markup_alvo: 0,
   logo_path: null,
   valor_minimo_isencao: 750.00,
-  valor_frete_padrao: 0
+  valor_frete_padrao: 0,
+  aliquota_interna: 0,
+  fcp_percentual: 0,
+  aliquota_interestadual_origem: 12,
+  valor_gatilho_frete: 0,
+  valor_frete_fixo: 0,
+  valor_frete_vendedor: 0
 })
 
 const estados = ref([])
 const mensagem = ref({ texto: '', tipo: '' })
 const logoPreview = ref(null)
 
-// 1. Carrega estados para o Select
 const carregarEstadosFiscais = async () => {
   try {
     const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/config/estados`)
@@ -38,13 +41,10 @@ const carregarEstadosFiscais = async () => {
   }
 }
 
-// 2. Carregar configurações completas
 const carregarConfig = async () => {
   if (!usuarioLogado.id) return
-
   try {
     const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/config-completa/${usuarioLogado.id}`)
-    
     if (res.data) {
       config.value = { ...config.value, ...res.data }
       if (config.value.logo_path) {
@@ -61,6 +61,20 @@ onMounted(() => {
   carregarEstadosFiscais()
 })
 
+watch(() => config.value.uf_sede, (newUf) => {
+  const est = estados.value.find(e => e.uf === newUf)
+  if (est) {
+    config.value.aliquota_interna = est.aliquota_interna
+    config.value.fcp_percentual = est.fcp_percentual
+    config.value.aliquota_interestadual_origem = est.aliquota_interestadual_origem
+    config.value.valor_gatilho_frete = est.valor_gatilho_frete
+    config.value.valor_frete_fixo = est.valor_frete_fixo
+    config.value.valor_minimo_isencao = est.frete_fornecedor_isencao_minima
+    config.value.valor_frete_padrao = est.frete_fornecedor_padrao
+    config.value.valor_frete_vendedor = est.frete_vendedor_valor
+  }
+})
+
 const handleLogoChange = (event) => {
   const file = event.target.files[0]
   if (file) {
@@ -72,13 +86,11 @@ const handleLogoChange = (event) => {
 const salvarConfig = async () => {
   try {
     if (!usuarioLogado.id) {
-      mensagem.value = { texto: '❌ Erro: Usuário não identificado.', tipo: 'erro' }
+      mensagem.value = { texto: 'Erro: Usuário não identificado.', tipo: 'erro' }
       return
     }
-
     mensagem.value = { texto: 'Salvando...', tipo: 'info' }
     const formData = new FormData()
-    
     Object.keys(config.value).forEach(key => {
       if (key === 'logo_file') {
         formData.append('logo_file', config.value[key])
@@ -86,21 +98,16 @@ const salvarConfig = async () => {
         formData.append(key, config.value[key])
       }
     })
-
     formData.append('usuario_id', usuarioLogado.id)
-
     await axios.post(`${import.meta.env.VITE_API_URL}/api/config-empresa`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
-
-    mensagem.value = { texto: '✅ Configurações salvas com sucesso!', tipo: 'sucesso' }
+    mensagem.value = { texto: 'Configuracoes salvas com sucesso!', tipo: 'sucesso' }
     window.scrollTo({ top: 0, behavior: 'smooth' })
-    
     setTimeout(() => carregarConfig(), 1000)
-
   } catch (err) {
     mensagem.value = { 
-      texto: err.response?.data?.error || '❌ Erro ao salvar configurações.', 
+      texto: err.response?.data?.error || 'Erro ao salvar configurações.', 
       tipo: 'erro' 
     }
   }
@@ -112,7 +119,7 @@ const salvarConfig = async () => {
     <div class="flex justify-between items-center mb-6">
       <div>
         <h1 class="text-3xl font-bold text-slate-800">Configurações do Sistema</h1>
-        <p class="text-slate-500 text-sm">Olá, <b>{{ usuarioLogado.nome || 'Vendedor' }}</b>. Gerencie seus parâmetros abaixo.</p>
+        <p class="text-slate-500 text-sm">Olá, <b>{{ usuarioLogado.nome || 'Vendedor' }}</b>. Gerencie seus parametros abaixo.</p>
       </div>
       <button @click="salvarConfig" class="bg-blue-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg transition active:scale-95">
         Salvar Alterações
@@ -126,7 +133,6 @@ const salvarConfig = async () => {
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-      
       <div class="md:col-span-2 space-y-6">
         <section class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <h2 class="text-lg font-semibold text-slate-700 mb-4 border-b pb-2 flex items-center">
@@ -149,7 +155,7 @@ const salvarConfig = async () => {
               <input v-model="config.razao_social" type="text" class="w-full border rounded-lg p-2 mt-1 outline-none focus:ring-2 focus:ring-blue-500">
             </div>
             <div class="md:col-span-2">
-              <label class="text-xs font-bold text-slate-400 uppercase">Nome Fantasia (Exibido no Orçamento)</label>
+              <label class="text-xs font-bold text-slate-400 uppercase">Nome Fantasia (Exibido no Orcamento)</label>
               <input v-model="config.nome_fantasia" type="text" class="w-full border rounded-lg p-2 mt-1 outline-none focus:ring-2 focus:ring-blue-500" placeholder="Nome da sua loja">
             </div>
           </div>
@@ -163,12 +169,27 @@ const salvarConfig = async () => {
             <div>
               <label class="text-xs font-bold text-slate-400 uppercase">Mínimo para Frete Grátis (R$)</label>
               <input v-model="config.valor_minimo_isencao" type="number" step="0.01" class="w-full border rounded-lg p-2 mt-1 text-orange-600 font-bold outline-none">
-              <p class="text-[10px] text-slate-400 mt-1 italic">Acima de R$ 750,00 o frete Kapazi costuma ser grátis.</p>
+              <p class="text-[10px] text-slate-400 mt-1 italic">Acima de R$ 750,00 o frete Kapazi costuma ser gratis.</p>
             </div>
             <div>
               <label class="text-xs font-bold text-slate-400 uppercase">Valor Frete Padrão (R$)</label>
               <input v-model="config.valor_frete_padrao" type="number" step="0.01" class="w-full border rounded-lg p-2 mt-1 text-slate-600 font-bold outline-none">
               <p class="text-[10px] text-slate-400 mt-1 italic">Cobrado quando o pedido é abaixo do mínimo.</p>
+            </div>
+            <div>
+              <label class="text-xs font-bold text-slate-400 uppercase">Gatilho Frete (R$)</label>
+              <input v-model="config.valor_gatilho_frete" type="number" step="0.01" class="w-full border rounded-lg p-2 mt-1 text-orange-600 font-bold outline-none">
+              <p class="text-[10px] text-slate-400 mt-1 italic">Valor mínimo do pedido para cobrar frete.</p>
+            </div>
+            <div>
+              <label class="text-xs font-bold text-slate-400 uppercase">Frete Fixo (R$)</label>
+              <input v-model="config.valor_frete_fixo" type="number" step="0.01" class="w-full border rounded-lg p-2 mt-1 text-slate-600 font-bold outline-none">
+              <p class="text-[10px] text-slate-400 mt-1 italic">Valor fixo de frete quando aplicável.</p>
+            </div>
+            <div>
+              <label class="text-xs font-bold text-slate-400 uppercase">Frete Vendedor (R$)</label>
+              <input v-model="config.valor_frete_vendedor" type="number" step="0.01" class="w-full border rounded-lg p-2 mt-1 text-blue-600 font-bold outline-none">
+              <p class="text-[10px] text-slate-400 mt-1 italic">Frete cobrado pelo vendedor (revenda).</p>
             </div>
           </div>
         </section>
@@ -185,13 +206,28 @@ const salvarConfig = async () => {
               </select>
             </div>
             <div>
-              <label class="text-xs font-bold text-blue-600 uppercase">Regime Tributário</label>
+              <label class="text-xs font-bold text-blue-600 uppercase">Regime Tributario</label>
               <select v-model="config.regime_tributario" class="w-full border border-blue-200 rounded-lg p-2 mt-1 bg-white outline-none">
                 <option value="MEI">MEI</option>
                 <option value="SIMPLES_NACIONAL">Simples Nacional</option>
                 <option value="LUCRO_PRESUMIDO">Lucro Presumido</option>
                 <option value="LUCRO_REAL">Lucro Real</option>
               </select>
+            </div>
+            <div>
+              <label class="text-xs font-bold text-blue-600 uppercase">Alíquota Interna (%)</label>
+              <input v-model="config.aliquota_interna" type="number" step="0.01" class="w-full border border-blue-200 rounded-lg p-2 mt-1 text-blue-700 font-bold outline-none">
+              <p class="text-[10px] text-slate-400 mt-1 italic">Alíquota interna do ICMS para o estado.</p>
+            </div>
+            <div>
+              <label class="text-xs font-bold text-blue-600 uppercase">FCP (%)</label>
+              <input v-model="config.fcp_percentual" type="number" step="0.01" class="w-full border border-blue-200 rounded-lg p-2 mt-1 text-blue-700 font-bold outline-none">
+              <p class="text-[10px] text-slate-400 mt-1 italic">Fundo de Combate à Pobreza.</p>
+            </div>
+            <div>
+              <label class="text-xs font-bold text-blue-600 uppercase">Alíq. Interestadual Origem (%)</label>
+              <input v-model="config.aliquota_interestadual_origem" type="number" step="0.01" class="w-full border border-blue-200 rounded-lg p-2 mt-1 text-blue-700 font-bold outline-none">
+              <p class="text-[10px] text-slate-400 mt-1 italic">Alíquota interestadual para operações de origem.</p>
             </div>
           </div>
         </section>
@@ -230,7 +266,6 @@ const salvarConfig = async () => {
           </div>
         </section>
       </div>
-
     </div>
   </div>
 </template>

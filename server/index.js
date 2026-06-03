@@ -45,6 +45,30 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 
 //CONFIGURAÇÕES REFERENTES AO ORÇAMENTO
+
+app.get('/api/produto-opcoes-completas/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        // Chamando a procedure
+        const [results] = await db.query("CALL sp_get_opcoes_produto(?)", [id]);
+        
+        // results[0] contém os atributos da matriz
+        // results[1] contém os acessórios
+        const matriz = results[0];
+        const acessorios = results[1];
+
+        res.json({
+            linhas: [...new Set(matriz.map(m => m.attr_linha))].filter(Boolean),
+            tipos: [...new Set(matriz.map(m => m.attr_tipo))].filter(Boolean),
+            niveis: [...new Set(matriz.map(m => m.attr_nivel))].filter(Boolean),
+            acessorios: acessorios
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).send("Erro ao buscar opções");
+    }
+});
+
 // 1. FILTRO 1: Lista todos os produtos (VW_FILTRO_PRODUTOS)
 app.get('/api/produtos-lista', async (req, res) => {
     try {
@@ -171,7 +195,9 @@ app.post('/api/config-empresa', upload.single('logo_file'), async (req, res) => 
             usuario_id, tipo_identificacao, documento, razao_social, 
             nome_fantasia, uf_sede, regime_tributario, 
             imposto_venda_percentual, custo_fixo_operacional, markup_alvo,
-            valor_minimo_isencao, valor_frete_padrao
+            valor_minimo_isencao, valor_frete_padrao,
+            aliquota_interna, fcp_percentual, aliquota_interestadual_origem,
+            valor_gatilho_frete, valor_frete_fixo, valor_frete_vendedor
         } = req.body;
 
         let logo_path = req.file ? req.file.filename : req.body.logo_path;
@@ -199,28 +225,40 @@ app.post('/api/config-empresa', upload.single('logo_file'), async (req, res) => 
             custo_fixo_operacional, markup_alvo, logo_path
         ]);
 
-        // 2. Atualizar config_frete_fornecedor
         await connection.query(`
-            INSERT INTO config_frete_fornecedor 
-                (id_usuario, uf_destino, valor_minimo_isencao, valor_frete_padrao, ativo)
-            VALUES (?, ?, ?, ?, 1)
+            INSERT INTO config_estados_fiscais 
+                (uf, aliquota_interna, fcp_percentual, aliquota_interestadual_origem,
+                 valor_gatilho_frete, valor_frete_fixo,
+                 frete_fornecedor_isencao_minima, frete_fornecedor_padrao, frete_vendedor_valor)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE 
-                uf_destino = VALUES(uf_destino),
-                valor_minimo_isencao = VALUES(valor_minimo_isencao),
-                valor_frete_padrao = VALUES(valor_frete_padrao)
-        `, [usuario_id, uf_sede, valor_minimo_isencao, valor_frete_padrao]);
-
+                aliquota_interna = VALUES(aliquota_interna),
+                fcp_percentual = VALUES(fcp_percentual),
+                aliquota_interestadual_origem = VALUES(aliquota_interestadual_origem),
+                valor_gatilho_frete = VALUES(valor_gatilho_frete),
+                valor_frete_fixo = VALUES(valor_frete_fixo),
+                frete_fornecedor_isencao_minima = VALUES(frete_fornecedor_isencao_minima),
+                frete_fornecedor_padrao = VALUES(frete_fornecedor_padrao),
+                frete_vendedor_valor = VALUES(frete_vendedor_valor)
+        `, [uf_sede, aliquota_interna, fcp_percentual, aliquota_interestadual_origem,
+            valor_gatilho_frete, valor_frete_fixo,
+            valor_minimo_isencao, valor_frete_padrao, valor_frete_vendedor]);
         await connection.commit();
+
         console.log("✅ Salvo com sucesso no banco!");
         res.json({ message: "Configurações salvas!" });
     } catch (error) {
         await connection.rollback();
         console.error("❌ ERRO NO BANCO:", error.message);
-        res.status(500).json({ error: error.message });
+        const msg = error.code === 'ER_DUP_ENTRY' ? 'Documento (CPF/CNPJ) ja cadastrado.' : error.message;
+        res.status(500).json({ error: msg });
     } finally {
         connection.release();
     }
 });// --- RESTO DAS ROTAS (Autenticação, Clientes, Usuários) MANTIDAS ---
+// FIM SALVAR OU ATUALIZAR (Transaction para Empresa + Logística)
+// FIM ROTA POST CORRIGIDA
+// FIM SALVAR OU ATUALIZAR (Correção Definitiva do Regime Tributário)
 
 app.post('/api/login', async (req, res) => {
     const { email, senha } = req.body;
@@ -295,11 +333,13 @@ app.post('/api/clientes', async (req, res) => {
                 );
             }
         }
+
         await connection.commit();
         res.status(201).json({ message: "Cliente cadastrado!", id: clienteId });
     } catch (error) {
         await connection.rollback();
-        res.status(500).json({ error: error.message });
+        const msg = error.code === 'ER_DUP_ENTRY' ? 'Documento (CPF/CNPJ) ja cadastrado.' : error.message;
+        res.status(500).json({ error: msg });
     } finally {
         connection.release();
     }
@@ -331,11 +371,12 @@ app.put('/api/clientes/:id', async (req, res) => {
         if (enderecos) {
             for (const end of enderecos) {
                 if (end.logradouro) await connection.query(
-                    "INSERT INTO cliente_enderecos (cliente_id, logradouro, numero, complemento, cep,  cidade, estado, tipo) VALUES (?, ?, ?, ?, ?, ?, ?,?)",
-                    [id, end.logradouro, end.numero, end.complemento, end.cep, end.cidade, end.estado, end.tipo]
+                    "INSERT INTO cliente_enderecos (cliente_id, logradouro, numero, complemento, bairro, cidade, estado, cep, tipo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [id, end.logradouro, end.numero, end.complemento, end.bairro, end.cidade, end.estado, end.cep, end.tipo]
                 );
             }
         }
+
 
         await connection.commit();
         res.json({ message: "Cliente atualizado com sucesso!" });
@@ -411,6 +452,7 @@ app.put('/api/usuarios/:id', async (req, res) => {
             }
         }
 
+
         await connection.commit();
         res.json({ message: "Usuário atualizado com sucesso!" });
     } catch (error) {
@@ -447,6 +489,7 @@ app.post('/api/usuarios', async (req, res) => {
                 );
             }
         }
+
 
         await connection.commit();
         res.status(201).json({ message: "Usuário cadastrado!" });

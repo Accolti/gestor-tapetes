@@ -39,7 +39,7 @@ onMounted(carregarClientes)
 
 const addTelefone = () => cliente.value.telefones.push({ numero: '', tipo: 'WhatsApp' })
 const removeTelefone = (index) => cliente.value.telefones.splice(index, 1)
-const addEndereco = () => cliente.value.enderecos.push({ logradouro: '', numero: '', complemento: '', cidade: '', estado: '', tipo: 'Comercial' })
+const addEndereco = () => cliente.value.enderecos.push({ logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', estado: '', cep: '', tipo: 'Comercial' })
 const removeEndereco = (index) => cliente.value.enderecos.splice(index, 1)
 
 const salvarCliente = async () => {
@@ -72,7 +72,7 @@ const salvarCliente = async () => {
     }, 500);
 
   } catch (error) {
-    mensagem.value = { texto: '❌ Erro ao salvar dados.', tipo: 'erro' }
+    mensagem.value = { texto: error.response?.data?.error || 'Erro ao salvar dados.', tipo: 'erro' }
     console.error(error)
   }
 }
@@ -83,7 +83,7 @@ const editarCliente = (item) => {
     email: item.email || item.email_principal, 
     ie: item.ie || '',
     telefones: item.telefones && item.telefones.length > 0 ? item.telefones : [{ numero: '', tipo: 'WhatsApp' }],
-    enderecos: item.enderecos && item.enderecos.length > 0 ? item.enderecos : [{ logradouro: '', numero: '', complemento: '', cidade: '', estado: '', tipo: 'Comercial' }]
+    enderecos: item.enderecos && item.enderecos.length > 0 ? item.enderecos : [{ logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', estado: '', cep: '', tipo: 'Comercial' }]
   };
   window.scrollTo({ top: 0, behavior: 'smooth' });
 };
@@ -103,7 +103,7 @@ const resetarFormulario = () => {
   cliente.value = {
     tipo_pessoa: 'PJ', documento: '', razao_social: '', nome_fantasia: '', ie: '', email: '',
     telefones: [{ numero: '', tipo: 'WhatsApp' }],
-    enderecos: [{ logradouro: '', numero: '', complemento: '', cidade: '', estado: '', tipo: 'Comercial' }]
+    enderecos: [{ logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', estado: '', cep: '', tipo: 'Comercial' }]
   }
   mensagem.value = { texto: '', tipo: '' }
 }
@@ -219,6 +219,11 @@ const resetarFormulario = () => {
       <div class="md:col-span-2">
         <label class="block text-[10px] font-bold text-slate-400 uppercase">Complemento</label>
         <input v-model="end.complemento" type="text" class="w-full border rounded p-2 outline-none">
+      </div>
+
+      <div>
+        <label class="block text-[10px] font-bold text-slate-400 uppercase">Bairro</label>
+        <input v-model="end.bairro" type="text" class="w-full border rounded p-2 outline-none">
       </div>
 
       <div>
