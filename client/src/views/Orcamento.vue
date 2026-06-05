@@ -1,5 +1,5 @@
 <script setup lang="js">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import axios from 'axios'
 
 defineOptions({ name: 'OrcamentoView' })
@@ -12,10 +12,30 @@ const faixaSelecionada = ref(null)
 
 // --- REFS PARA OS FILTROS (CHAVE DO PROBLEMA ESTAVA AQUI) ---
 const listaProdutosBase = ref([]) 
-const opcoesLinha = ref([])      
-const opcoesTipo = ref([])       
-const opcoesNivel = ref([])      
-const opcoesAcessorios = ref([]) // <-- DECLARADA AGORA
+const opcoesAcessorios = ref([])
+const combinacoes = ref([])
+
+const opcoesLinha = computed(() =>
+  [...new Set(combinacoes.value.map(m => m.attr_linha))].filter(Boolean)
+)
+
+const opcoesTipo = computed(() => {
+  if (!filtros.value.linha) return []
+  return [...new Set(
+    combinacoes.value
+      .filter(m => m.attr_linha === filtros.value.linha)
+      .map(m => m.attr_tipo)
+  )].filter(Boolean)
+})
+
+const opcoesNivel = computed(() => {
+  if (!filtros.value.linha || !filtros.value.tipo) return []
+  return [...new Set(
+    combinacoes.value
+      .filter(m => m.attr_linha === filtros.value.linha && m.attr_tipo === filtros.value.tipo)
+      .map(m => m.attr_nivel)
+  )].filter(Boolean)
+})
 
 const filtros = ref({
   produtoId: '',
@@ -24,6 +44,16 @@ const filtros = ref({
   tipo: '',
   nivel: '',
   acessorioId: ''
+})
+
+// Watchers para cascata de selecoes
+watch(() => filtros.value.linha, () => {
+  filtros.value.tipo = ''
+  filtros.value.nivel = ''
+})
+
+watch(() => filtros.value.tipo, () => {
+  filtros.value.nivel = ''
 })
 
 const prod = ref({
@@ -55,8 +85,11 @@ const valorParcelaBoleto = computed(() => (valorVendaSimulado.value / 3).toFixed
 // --- FUNÇÕES DE CARREGAMENTO ---
 const carregarClientes = async () => {
   try {
-    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/clientes`)
-    clientes.value = res.data
+    const user = JSON.parse(localStorage.getItem('usuarioLogado') || '{}');
+    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/clientes`, {
+      params: { usuario_id: user.id, nivel: user.nivel }
+    });
+    clientes.value = res.data;
   } catch (err) { console.error("Erro clientes:", err) }
 }
 
@@ -74,9 +107,7 @@ const atualizarOpcoesFiltros = async () => {
     const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/produto-opcoes-completas/${filtros.value.produtoId}`)
     const dados = res.data
     
-    opcoesLinha.value = dados.linhas
-    opcoesTipo.value = dados.tipos
-    opcoesNivel.value = dados.niveis
+    combinacoes.value = dados.combinacoes
     opcoesAcessorios.value = dados.acessorios
 
     // Reset de seleções
@@ -92,26 +123,65 @@ const atualizarOpcoesFiltros = async () => {
 // Remova o @change="buscarPrecoFinal" das suas comboboxes no HTML e use esta lógica:
 
 const buscarPrecoFinal = async () => {
-  // Validamos se todos os filtros obrigatórios foram escolhidos
-  if (!filtros.value.produtoId || !filtros.value.linha || !filtros.value.tipo || !filtros.value.nivel) {
-    alert("Por favor, selecione todos os campos (Produto, Linha, Tipo e Nível) antes de calcular.");
+  if (!filtros.value.produtoId) {
+    alert("Por favor, selecione um Produto.");
+    return;
+  }
+  if (opcoesLinha.value.length > 0 && !filtros.value.linha) {
+    alert("Por favor, selecione a Linha.");
+    return;
+  }
+  if (opcoesTipo.value.length > 0 && !filtros.value.tipo) {
+    alert("Por favor, selecione o Tipo.");
+    return;
+  }
+  if (opcoesNivel.value.length > 0 && !filtros.value.nivel) {
+    alert("Por favor, selecione o Nível.");
+    return;
+  }
+
+  let resultado = combinacoes.value;
+
+  if (filtros.value.linha) {
+    resultado = resultado.filter(c => c.attr_linha === filtros.value.linha);
+  }
+  if (filtros.value.tipo) {
+    resultado = resultado.filter(c => c.attr_tipo === filtros.value.tipo);
+  }
+  if (filtros.value.nivel) {
+    const comNivel = resultado.filter(c => c.attr_nivel === filtros.value.nivel);
+    if (comNivel.length > 0) {
+      resultado = comNivel;
+    } else {
+      resultado = resultado.filter(c => c.attr_nivel === null);
+    }
+  }
+
+  const match = resultado[0] || null;
+
+  if (!match) {
+    alert("Combinação inválida. Selecione novamente.");
     return;
   }
 
   try {
-    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/produto-preco-final`, { 
-      params: filtros.value 
+    const res = await axios.get(`${import.meta.env.VITE_API_URL}/.`, { 
+      params: { 
+        produtoId: filtros.value.produtoId,
+        id_matriz_preco: match.id_matriz_preco,
+        id_acessorio: filtros.value.acessorioId || null
+      }
     });
     
     const db = res.data;
     
-    // Atualizamos os dados do produto para o cálculo
     prod.value = { 
       ...prod.value,
-      id_matriz: db.id_matriz,
+      id_matriz: match.id_matriz_preco,
+      id_acessorio: filtros.value.acessorioId || null,
       nome: db.nome_comercial,
       preco_base: db.preco_base,
-      custo_m2: db.preco_base // O valor que será usado no cálculo de m2
+      custo_m2: db.preco_base
     };
 
     console.log("Preço atualizado com sucesso!");
@@ -123,7 +193,7 @@ const buscarPrecoFinal = async () => {
 
 const adicionarProduto = () => {
   if (prod.value.largura > 0 && prod.value.comprimento > 0 && prod.value.custo_m2 > 0) {
-    const acessorio = opcoesAcessorios.value.find(a => a.id === filtros.value.acessorioId)
+    const acessorio = opcoesAcessorios.value.find(a => a.id_acessorio == filtros.value.acessorioId)
     let custoAcessorio = acessorio ? parseFloat(acessorio.preco_custo) : 0
     
     // Se for m2, multiplica
@@ -134,6 +204,8 @@ const adicionarProduto = () => {
     const totalItem = (prod.value.largura * prod.value.comprimento * prod.value.custo_m2) + custoAcessorio
 
     itensOrcamento.value.push({
+      id_matriz_preco: prod.value.id_matriz,
+      id_acessorio: prod.value.id_acessorio,
       descricao: `${prod.value.nome} (${filtros.value.linha}) ${acessorio ? '+ ' + acessorio.nome : ''}`,
       largura: prod.value.largura,
       comprimento: prod.value.comprimento,
@@ -143,7 +215,7 @@ const adicionarProduto = () => {
 
     // Reset total
     filtros.value = { produtoId: '', linha: '', tipo: '', nivel: '', acessorioId: '' }
-    prod.value = { nome: '', largura: 0, comprimento: 0, custo_m2: 0, preco_base: 0 }
+    prod.value = { nome: '', largura: 0, comprimento: 0, custo_m2: 0, preco_base: 0, id_matriz: null, id_acessorio: null }
   }
 }
 

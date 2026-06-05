@@ -10,6 +10,8 @@ const cliente = ref({
   nome_fantasia: '',
   ie: '',
   email: '',
+  contato: '',
+  observacao: '',
   telefones: [{ numero: '', tipo: 'WhatsApp' }],
   enderecos: [{ logradouro: '', numero: '', complemento: '', cidade: '', estado: '', cep:'',  tipo: 'Comercial' }]
 })
@@ -82,6 +84,8 @@ const editarCliente = (item) => {
     ...item,
     email: item.email || item.email_principal, 
     ie: item.ie || '',
+    contato: item.contato || '',
+    observacao: item.observacao || '',
     telefones: item.telefones && item.telefones.length > 0 ? item.telefones : [{ numero: '', tipo: 'WhatsApp' }],
     enderecos: item.enderecos && item.enderecos.length > 0 ? item.enderecos : [{ logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', estado: '', cep: '', tipo: 'Comercial' }]
   };
@@ -101,12 +105,42 @@ const excluirCliente = async (id) => {
 
 const resetarFormulario = () => {
   cliente.value = {
-    tipo_pessoa: 'PJ', documento: '', razao_social: '', nome_fantasia: '', ie: '', email: '',
+    tipo_pessoa: 'PJ', documento: '', razao_social: '', nome_fantasia: '', ie: '', email: '', contato: '', observacao: '',
     telefones: [{ numero: '', tipo: 'WhatsApp' }],
     enderecos: [{ logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', estado: '', cep: '', tipo: 'Comercial' }]
   }
   mensagem.value = { texto: '', tipo: '' }
 }
+
+const buscarCNPJ = async () => {
+  const cnpj = cliente.value.documento.replace(/\D/g, '');
+  if (cnpj.length !== 14) {
+    mensagem.value = { texto: 'CNPJ invalido. Digite 14 digitos.', tipo: 'erro' };
+    return;
+  }
+  try {
+    mensagem.value = { texto: 'Buscando dados do CNPJ...', tipo: 'info' };
+    const res = await axios.post(`${import.meta.env.VITE_API_URL}/api/buscar-cnpj`, { cnpj });
+    const data = res.data;
+    if (data.razaoSocial) cliente.value.razao_social = data.razaoSocial;
+    if (data.nomeFantasia) cliente.value.nome_fantasia = data.nomeFantasia;
+    if (data.ie) cliente.value.ie = data.ie;
+    if (data.email) cliente.value.email = data.email;
+    if (data.endereco) {
+      cliente.value.enderecos = [{ ...data.endereco, tipo: 'Comercial' }];
+    }
+    if (data.telefones && data.telefones.length) {
+      cliente.value.telefones = data.telefones;
+    }
+    mensagem.value = { texto: 'Dados preenchidos automaticamente!', tipo: 'sucesso' };
+  } catch (err) {
+    mensagem.value = {
+      texto: err.response?.data?.error || 'Erro ao buscar CNPJ.',
+      tipo: 'erro'
+    };
+  }
+};
+
 </script>
 
 <template>
@@ -144,7 +178,17 @@ const resetarFormulario = () => {
           </div>
           <div>
             <label class="block text-sm font-medium text-slate-500">{{ cliente.tipo_pessoa === 'PJ' ? 'CNPJ' : 'CPF' }}</label>
-            <input v-model="cliente.documento" type="text" class="w-full border rounded-lg p-2 mt-1 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="00.000.000/0000-00">
+            <div class="flex gap-2">
+              <input v-model="cliente.documento" type="text" class="flex-1 border rounded-lg p-2 mt-1 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="00.000.000/0000-00">
+              <button v-if="cliente.tipo_pessoa === 'PJ'" @click="buscarCNPJ"
+                class="bg-green-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-700 shadow-lg transition h-[42px] mt-1 whitespace-nowrap">
+                Buscar CNPJ
+              </button>
+            </div>
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-sm font-medium text-slate-500">Contato</label>
+            <input v-model="cliente.contato" type="text" class="w-full border rounded-lg p-2 mt-1 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Nome da pessoa de contato">
           </div>
           <div class="md:col-span-2">
             <label class="block text-sm font-medium text-slate-500">Razão Social / Nome Completo</label>
@@ -165,6 +209,10 @@ const resetarFormulario = () => {
           <div :class="cliente.tipo_pessoa === 'PJ' ? 'md:col-span-2' : ''">
             <label class="block text-sm font-medium text-slate-500">E-mail Principal</label>
             <input v-model="cliente.email" type="email" class="w-full border rounded-lg p-2 mt-1 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="exemplo@email.com">
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-sm font-medium text-slate-500">Observação</label>
+            <textarea v-model="cliente.observacao" rows="3" class="w-full border rounded-lg p-2 mt-1 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Observações sobre o cliente..."></textarea>
           </div>
         </div>
       </section>

@@ -61,6 +61,7 @@ app.get('/api/produto-opcoes-completas/:id', async (req, res) => {
             linhas: [...new Set(matriz.map(m => m.attr_linha))].filter(Boolean),
             tipos: [...new Set(matriz.map(m => m.attr_tipo))].filter(Boolean),
             niveis: [...new Set(matriz.map(m => m.attr_nivel))].filter(Boolean),
+            combinacoes: matriz,
             acessorios: acessorios
         });
     } catch (error) {
@@ -102,25 +103,21 @@ app.get('/api/produto-detalhes/:id', async (req, res) => {
     }
 });
 
-// 3. RESULTADO FINAL: Busca o preço e dados completos após selecionar os 4 filtros
+// 3. RESULTADO FINAL: Busca o preço e dados completos pelo ID da matriz
 app.get('/api/produto-preco-final', async (req, res) => {
-    const { produtoId, linha, tipo, nivel } = req.query;
+    const { produtoId, id_matriz_preco, id_acessorio } = req.query;
     
     try {
         // Buscamos na view detalhada usando os filtros de texto selecionados
         const [rows] = await db.query(
-            `SELECT * FROM vw_produto_completo_detalhado 
-             WHERE id_produto = ? AND attr_linha <=> ? AND attr_tipo <=> ? AND attr_nivel <=> ?`,
-            [produtoId, linha || null, tipo || null, nivel || null]
+            `SELECT * FROM vw_produto_completo_detalhado WHERE id_produto = ? AND id_matriz_preco = ? AND (id_acessorio <=> ?)`,
+            [produtoId, id_matriz_preco, id_acessorio || null]
         );
 
         if (rows.length === 0) {
             return res.status(404).json({ error: "Produto não encontrado na matriz." });
         }
 
-        // Como um produto pode ter múltiplos acessórios na view (devido ao join), 
-        // vamos retornar o primeiro registro para pegar o preço base e, 
-        // se precisar, você pode tratar a lista de acessórios depois.
         res.json(rows[0]); 
     } catch (error) {
         console.error(error);
@@ -138,19 +135,6 @@ app.get('/api/produto-acessorios/:id', async (req, res) => {
     }
 });
 
-// 2. Rota do Preço Final (Apenas a Matriz, o acessório tratamos no Vue)
-app.get('/api/produto-preco-final', async (req, res) => {
-    const { produtoId, linha, tipo, nivel } = req.query;
-    try {
-        const [rows] = await db.query(
-            "SELECT * FROM vw_produto_completo_detalhado WHERE id_produto = ? AND attr_linha = ? AND attr_tipo = ? AND attr_nivel = ?",
-            [produtoId, linha, tipo, nivel]
-        );
-        res.json(rows[0] || {});
-    } catch (error) {
-        res.status(500).json({ error: "Erro ao buscar preço final" });
-    }
-});
 //FIM CONFIGIRAÇÕES REFERENTES AO ORÇAMENTO
 
 // --- CONFIGURAÇÕES FISCAIS E EMPRESA (SaaS) ---
@@ -311,13 +295,13 @@ app.get('/api/clientes', async (req, res) => {
 });
 
 app.post('/api/clientes', async (req, res) => {
-    const { tipo_pessoa, documento, razao_social, nome_fantasia, ie, email, telefones, enderecos, usuario_id } = req.body;
+    const { tipo_pessoa, documento, razao_social, nome_fantasia, ie, email, contato, observacao, telefones, enderecos, usuario_id } = req.body;
     const connection = await db.getConnection();
     try {
         await connection.beginTransaction();
         const [resCliente] = await connection.query(
-            "INSERT INTO clientes (tipo_pessoa, documento, razao_social, nome_fantasia, ie, email_principal, usuario_id) VALUES (?, ?, ?, ?, ?,?, ?)",
-            [tipo_pessoa, documento, razao_social, nome_fantasia, ie || null, email, usuario_id || null]
+            "INSERT INTO clientes (tipo_pessoa, documento, razao_social, nome_fantasia, ie, email_principal, contato, observacao, usuario_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [tipo_pessoa, documento, razao_social, nome_fantasia, ie || null, email, contato || null, observacao || null, usuario_id || null]
         );
         const clienteId = resCliente.insertId;
         if (telefones) {
@@ -347,15 +331,15 @@ app.post('/api/clientes', async (req, res) => {
 // ATUALIZAR CLIENTE (PUT)
 app.put('/api/clientes/:id', async (req, res) => {
     const { id } = req.params;
-    const { tipo_pessoa, documento, razao_social, nome_fantasia, ie, email, telefones, enderecos } = req.body;
+    const { tipo_pessoa, documento, razao_social, nome_fantasia, ie, email, contato, observacao, telefones, enderecos } = req.body;
     const connection = await db.getConnection();
     try {
         await connection.beginTransaction();
 
         // 1. Atualiza dados básicos
         await connection.query(
-            "UPDATE clientes SET tipo_pessoa=?, documento=?, razao_social=?, nome_fantasia=?, ie=?, email_principal=? WHERE id=?",
-            [tipo_pessoa, documento, razao_social, nome_fantasia, ie, email, id]
+            "UPDATE clientes SET tipo_pessoa=?, documento=?, razao_social=?, nome_fantasia=?, ie=?, email_principal=?, contato=?, observacao=? WHERE id=?",
+            [tipo_pessoa, documento, razao_social, nome_fantasia, ie, email, contato || null, observacao || null, id]
         );
 
         // 2. Atualiza Telefones (Remove os antigos e insere os novos para simplificar)
@@ -501,6 +485,71 @@ app.post('/api/usuarios', async (req, res) => {
     }
 });
 
+// BUSCAR CNPJ VIA API
+app.post('/api/buscar-cnpj', async (req, res) => {
+    const { cnpj } = req.body;
+    const apiKey = process.env.CNPJ_API_KEY;
+
+    if (!cnpj) return res.status(400).json({ error: 'CNPJ é obrigatório.' });
+    if (!apiKey) return res.status(500).json({ error: 'API key nao configurada.' });
+
+    const cnpjLimpo = cnpj.replace(/\D/g, '');
+
+    try {
+        const [officeRes, cccRes] = await Promise.all([
+            fetch(`https://api.cnpja.com/office/${cnpjLimpo}`, {
+                headers: { Authorization: apiKey }
+            }),
+            fetch(`https://api.cnpja.com/ccc?states=SP&taxId=${cnpjLimpo}`, {
+                headers: { Authorization: apiKey }
+            })
+        ]);
+
+        const cnpjData = await officeRes.json();
+        const ieData = await cccRes.json();
+
+        if (officeRes.status !== 200) {
+            return res.status(400).json({
+                error: cnpjData.message || 'Erro ao consultar CNPJ',
+                detalhes: cnpjData.constraints
+            });
+        }
+
+        const endereco = cnpjData.address ? {
+            logradouro: cnpjData.address.street || null,
+            numero: cnpjData.address.number || null,
+            complemento: cnpjData.address.details || null,
+            bairro: cnpjData.address.district || null,
+            cidade: cnpjData.address.city || null,
+            estado: cnpjData.address.state || null,
+            cep: cnpjData.address.zip || null
+        } : null;
+
+        const telefones = cnpjData.phones?.length
+            ? cnpjData.phones.map(t => ({
+                numero: (t.area || '') + (t.number || ''),
+                tipo: t.type === 'mobile' ? 'Celular' : t.type === 'phone' ? 'Fixo' : 'WhatsApp'
+              }))
+            : [];
+
+        const emails = cnpjData.emails?.length
+            ? cnpjData.emails.map(e => e.address)
+            : [];
+
+        const ieAtiva = ieData?.registrations?.find(r => r.enabled === true) || null;
+
+        res.json({
+            razaoSocial: cnpjData.company?.name || null,
+            nomeFantasia: cnpjData.alias || null,
+            ie: ieAtiva?.number || null,
+            email: emails[0] || null,
+            endereco,
+            telefones
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 app.get('/health', (req, res) => res.send("API Rodando! 🚀"));
 
 const PORT = process.env.PORT || 3000;
