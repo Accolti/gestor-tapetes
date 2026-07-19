@@ -165,7 +165,7 @@ const buscarPrecoFinal = async () => {
   }
 
   try {
-    const res = await axios.get(`${import.meta.env.VITE_API_URL}/.`, { 
+    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/produto-preco-final`, { 
       params: { 
         produtoId: filtros.value.produtoId,
         id_matriz_preco: match.id_matriz_preco,
